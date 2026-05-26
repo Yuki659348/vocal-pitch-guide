@@ -22,7 +22,6 @@
     </header>
 
     <main class="flex-grow flex flex-col p-4 gap-4 overflow-hidden">
-        <!-- 上部：メイン表示 -->
         <div class="grid grid-cols-2 gap-4">
             <div class="bg-gray-900/40 p-5 rounded-2xl border border-gray-800">
                 <div id="current-note" class="font-digital text-5xl font-black text-white leading-none">--</div>
@@ -40,14 +39,12 @@
             </div>
         </div>
         
-        <!-- 中央：チューナーメーター -->
         <div class="bg-gray-900/40 p-4 rounded-2xl border border-gray-800">
             <div class="mt-2 w-full h-8 bg-black rounded-lg border border-gray-700 relative flex items-center">
                 <div id="needle" class="absolute w-0.5 h-8 bg-cyan-400 transition-all duration-300 ease-out z-20 left-1/2"></div>
             </div>
         </div>
         
-        <!-- 下部：波形グラフ -->
         <div class="flex-grow bg-black/20 border border-gray-800 rounded-2xl p-1 relative overflow-hidden">
             <canvas id="pitch-canvas" class="w-full h-full"></canvas>
         </div>
@@ -113,13 +110,13 @@
                 const targetFreq = 440 * Math.pow(2, (midiNote - 69) / 12);
                 const cents = 1200 * Math.log2(smoothedPitch / targetFreq);
                 
-                // ビブラート計算：変動幅(Hz)を基準周波数で割ってパーセント化（最大10%程度を天井とする）
+                // ビブラートの感度調整：変動幅の係数を下げ、より余裕のあるスケールに設定
                 const vibratoDepth = Math.max(...pitchHistory) - Math.min(...pitchHistory);
-                const vibratoPercent = Math.min(100, (vibratoDepth / smoothedPitch) * 100 * 10);
+                const vibratoPercent = Math.min(100, (vibratoDepth / smoothedPitch) * 100 * 2.5); // 感度を以前の1/4に調整
                 
-                vibratoMeter.style.width = Math.min(100, vibratoDepth * 2) + "%";
+                vibratoMeter.style.width = vibratoPercent + "%";
                 document.getElementById('vibrato-val').textContent = (vibratoDepth / 10).toFixed(1) + " Hz";
-                document.getElementById('vibrato-percent').textContent = vibratoPercent.toFixed(0) + "%";
+                document.getElementById('vibrato-percent').textContent = Math.round(vibratoPercent) + "%";
 
                 needle.style.left = `${Math.max(0, Math.min(100, (cents + 50)))}%`;
                 const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
