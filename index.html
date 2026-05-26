@@ -25,6 +25,7 @@
         }
         .font-digital { font-family: 'Orbitron', sans-serif; }
         input[type=range] { accent-color: #00e5ff; }
+        select { background: #1f2937; color: #fff; border: 1px solid #374151; }
     </style>
 </head>
 <body class="flex flex-col h-[100dvh]">
@@ -45,6 +46,14 @@
             </div>
             
             <div class="space-y-4">
+                <div class="space-y-1">
+                    <label class="text-[10px] text-gray-500 uppercase tracking-widest">解析モード</label>
+                    <select id="mode-select" class="w-full p-2 rounded-lg text-sm">
+                        <option value="voice">人の声（ボーカル）</option>
+                        <option value="instrument">楽器（ギター・ピアノ等）</option>
+                    </select>
+                </div>
+
                 <div class="space-y-1">
                     <div class="flex justify-between text-[10px] text-gray-500 uppercase tracking-widest">
                         <span>表示倍率 (Zoom)</span>
@@ -84,6 +93,7 @@
         const canvas = document.getElementById('pitch-canvas');
         const ctx = canvas.getContext('2d');
         const zoomSlider = document.getElementById('zoom-slider'), zoomValEl = document.getElementById('zoom-val');
+        const modeSelect = document.getElementById('mode-select');
         const currentNoteEl = document.getElementById('current-note'), currentHzEl = document.getElementById('current-hz');
         const statusPulse = document.getElementById('status-pulse'), btnToggleMic = document.getElementById('btn-toggle-mic'), btnText = document.getElementById('btn-text');
         const vibratoEl = document.getElementById('vibrato-val');
@@ -102,7 +112,11 @@
             let size = buffer.length, rms = 0;
             for (let i = 0; i < size; i++) rms += buffer[i] * buffer[i];
             rms = Math.sqrt(rms / size);
-            if (rms < 0.002) return -1;
+            
+            // モードによってノイズゲートの感度を調整
+            const gate = modeSelect.value === 'instrument' ? 0.005 : 0.002;
+            if (rms < gate) return -1;
+            
             let c = new Float32Array(size);
             for (let i = 0; i < size; i++) for (let j = 0; j < size - i; j++) c[i] += buffer[j] * buffer[j + i];
             let bestT = -1, threshold = 0.2 * c[0];
@@ -119,7 +133,7 @@
                 });
                 const source = audioContext.createMediaStreamSource(micStream);
                 analyser = audioContext.createAnalyser(); analyser.fftSize = 2048;
-                biquadFilter = audioContext.createBiquadFilter(); biquadFilter.type = "lowpass"; biquadFilter.frequency.value = 2000; 
+                biquadFilter = audioContext.createBiquadFilter(); biquadFilter.type = "lowpass"; biquadFilter.frequency.value = 3000; 
                 source.connect(biquadFilter); biquadFilter.connect(analyser);
                 isRunning = true; btnText.textContent = "停止"; statusPulse.className = "w-2 h-2 rounded-full bg-emerald-400 animate-pulse";
                 requestAnimationFrame(updateLoop);
@@ -140,8 +154,9 @@
             const displayH = canvas.height / window.devicePixelRatio;
 
             if (pitch > 50 && pitch < 2000) {
-                // 平滑化の係数を変更：値を小さくするほど動きがゆっくりになります (0.05 -> 0.02)
-                smoothedPitch = (pitch * 0.02) + (smoothedPitch * 0.98);
+                // 声モードはビブラート（揺れ）を残すため0.02、楽器は安定性を重視して0.01へ
+                const smooth = modeSelect.value === 'instrument' ? 0.01 : 0.02;
+                smoothedPitch = (pitch * smooth) + (smoothedPitch * (1 - smooth));
                 pitchHistory.push(smoothedPitch); if (pitchHistory.length > 400) pitchHistory.shift();
                 
                 vibratoBuffer.push(smoothedPitch); if (vibratoBuffer.length > 30) vibratoBuffer.shift();
