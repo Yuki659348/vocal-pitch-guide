@@ -22,16 +22,27 @@
 
     <main class="flex-grow flex flex-col p-4 gap-4 overflow-hidden">
         <div class="bg-gray-900/40 p-5 rounded-2xl border border-gray-800">
-            <div id="current-note" class="font-digital text-5xl font-black text-white leading-none">--</div>
-            <div class="flex gap-4 mt-2">
-                <div id="current-hz" class="text-xs text-gray-400 font-digital">0.00 Hz</div>
-                <div id="vibrato-status" class="text-xs text-cyan-400 font-digital">Vibrato: 0.0 Hz</div>
+            <div class="flex justify-between items-end">
+                <div id="current-note" class="font-digital text-5xl font-black text-white leading-none">--</div>
+                <div class="text-right">
+                    <div id="current-hz" class="text-xs text-gray-400 font-digital">0.00 Hz</div>
+                    <div id="vibrato-status" class="text-xs text-cyan-400 font-digital">Vibrato: 0.0 Hz</div>
+                </div>
+            </div>
+            
+            <!-- チューナーメーター -->
+            <div class="mt-6 w-full h-12 bg-black rounded-lg border border-gray-700 relative flex items-center overflow-hidden">
+                <div class="absolute left-0 right-0 h-px bg-gray-600"></div>
+                <div class="absolute w-0.5 h-10 bg-cyan-500 left-1/2 ml-[-1px] z-10 shadow-[0_0_10px_#06b6d4]"></div>
+                <div id="needle" class="absolute w-1 h-12 bg-white transition-all duration-100 ease-out z-20" style="left: 50%;"></div>
+            </div>
+            <div class="flex justify-between text-[10px] text-gray-500 mt-1 font-digital">
+                <span>-50c</span><span>0</span><span>+50c</span>
             </div>
         </div>
         
         <div class="flex-grow bg-black/20 border border-gray-800 rounded-2xl p-1 relative overflow-hidden">
             <canvas id="pitch-canvas" class="w-full h-full"></canvas>
-            <!-- ズームコントロール：min値を0.1まで引き下げて縮小幅を拡大 -->
             <div class="absolute bottom-4 right-4 bg-gray-900/80 p-2 rounded-lg border border-gray-700">
                 <input id="zoom-slider" type="range" min="0.1" max="5" step="0.1" value="1.5" class="w-24 accent-cyan-500">
             </div>
@@ -53,6 +64,7 @@
         const ctx = canvas.getContext('2d', { alpha: false });
         const btnToggleMic = document.getElementById('btn-toggle-mic');
         const zoomSlider = document.getElementById('zoom-slider');
+        const needle = document.getElementById('needle');
 
         function resize() {
             canvas.width = canvas.clientWidth * window.devicePixelRatio;
@@ -106,6 +118,14 @@
                     const minP = Math.min(...pitchHistory);
                     const vibrato = (maxP - minP).toFixed(1);
                     
+                    // セント計算（近似）
+                    const targetFreq = 440 * Math.pow(2, (Math.round(12 * Math.log2(pitch / 440)) / 12));
+                    const cents = 1200 * Math.log2(pitch / targetFreq);
+                    
+                    // 針の移動（-50 ~ +50 cents を 0% ~ 100% に）
+                    const needlePos = Math.max(0, Math.min(100, (cents + 50)));
+                    needle.style.left = `${needlePos}%`;
+
                     document.getElementById('vibrato-status').textContent = `Vibrato: ${vibrato} Hz`;
                     const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
                     document.getElementById('current-note').textContent = noteNames[Math.round(12 * Math.log2(pitch / 440) + 69) % 12];
