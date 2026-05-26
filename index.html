@@ -49,10 +49,17 @@
             </div>
         </div>
         
-        <div class="bg-gray-900/40 px-4 py-2 rounded-xl border border-gray-800 flex items-center gap-4">
-            <span class="text-[10px] text-gray-500 uppercase font-bold tracking-widest">Zoom</span>
-            <input type="range" id="zoom-slider" min="1" max="20" value="10" class="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer">
-            <span id="zoom-val" class="text-[10px] w-8 text-right font-digital text-cyan-400">10%</span>
+        <div class="bg-gray-900/40 px-4 py-3 rounded-xl border border-gray-800 flex flex-col gap-3">
+            <div class="flex items-center gap-4">
+                <span class="text-[10px] text-gray-500 uppercase font-bold tracking-widest w-12">Vert (Zoom)</span>
+                <input type="range" id="v-zoom" min="1" max="20" value="10" class="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+                <span id="v-val" class="text-[10px] w-8 text-right font-digital text-cyan-400">10%</span>
+            </div>
+            <div class="flex items-center gap-4">
+                <span class="text-[10px] text-gray-500 uppercase font-bold tracking-widest w-12">Horiz (Time)</span>
+                <input type="range" id="h-zoom" min="20" max="300" value="100" class="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+                <span id="h-val" class="text-[10px] w-8 text-right font-digital text-pink-400">100</span>
+            </div>
         </div>
 
         <div class="bg-gray-900/40 p-4 rounded-2xl border border-gray-800">
@@ -75,11 +82,11 @@
     <script>
         let audioContext, analyser, timeDomainData, isRunning = false;
         let pitchHistory = [], smoothedPitch = 0, silenceCount = 0;
-        const HOLD_THRESHOLD = 15, MAX_HISTORY = 100, SMOOTHING = 0.04;
+        const HOLD_THRESHOLD = 15, MAX_HISTORY = 300, SMOOTHING = 0.04;
         
         const canvas = document.getElementById('pitch-canvas'), ctx = canvas.getContext('2d', { alpha: false });
         const needle = document.getElementById('needle'), vibratoMeter = document.getElementById('vibrato-meter'), inputMeter = document.getElementById('input-meter');
-        const zoomSlider = document.getElementById('zoom-slider');
+        const vSlider = document.getElementById('v-zoom'), hSlider = document.getElementById('h-zoom');
 
         function resize() {
             canvas.width = canvas.clientWidth * window.devicePixelRatio;
@@ -151,11 +158,12 @@
 
             ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
             
-            const zoomLevel = zoomSlider.value / 100;
-            document.getElementById('zoom-val').textContent = zoomSlider.value + "%";
+            const vZoom = vSlider.value / 100;
+            const hZoom = hSlider.value;
+            document.getElementById('v-val').textContent = vSlider.value + "%";
+            document.getElementById('h-val').textContent = hZoom;
 
-            // 波形の中心とレンジを調整
-            const range = smoothedPitch * zoomLevel;
+            const range = smoothedPitch * vZoom;
             const yMin = smoothedPitch - range;
             const yMax = smoothedPitch + range;
 
@@ -164,12 +172,14 @@
             ctx.lineJoin = 'round';
             ctx.beginPath();
 
-            pitchHistory.forEach((p, i) => {
-                const x = (i / (MAX_HISTORY - 1)) * canvas.width;
-                // Clamp y to canvas bounds to prevent extreme overflow
+            // 横方向の表示数（hZoom）を制限
+            const startIdx = Math.max(0, pitchHistory.length - hZoom);
+            const visibleHistory = pitchHistory.slice(startIdx);
+
+            visibleHistory.forEach((p, i) => {
+                const x = (i / (hZoom - 1)) * canvas.width;
                 let y = canvas.height - ((p - yMin) / (yMax - yMin)) * canvas.height;
                 y = Math.max(0, Math.min(canvas.height, y));
-                
                 i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
             });
             ctx.stroke();
