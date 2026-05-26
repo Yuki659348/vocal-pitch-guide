@@ -148,7 +148,7 @@
 
             if (pitch > 50 && pitch < 2000) {
                 smoothedPitch = (pitch * 0.1) + (smoothedPitch * 0.9);
-                pitchHistory.push(smoothedPitch); if (pitchHistory.length > 200) pitchHistory.shift();
+                pitchHistory.push(smoothedPitch); if (pitchHistory.length > 400) pitchHistory.shift();
                 
                 vibratoBuffer.push(smoothedPitch); if (vibratoBuffer.length > 30) vibratoBuffer.shift();
                 let variance = vibratoBuffer.reduce((a,b)=>a + Math.pow(b - (vibratoBuffer.reduce((s,v)=>s+v)/30), 2), 0) / 30;
@@ -167,35 +167,32 @@
 
                 ctx.clearRect(0, 0, displayW, displayH);
                 
-                // グリッド線と音階ラベル
-                ctx.fillStyle = "rgba(255, 255, 255, 0.2)";
-                ctx.font = "10px Orbitron";
-                for (let i = 0; i <= 5; i++) {
-                    let y = displayH - (i * (displayH / 5));
-                    ctx.strokeStyle = "rgba(255, 255, 255, 0.1)";
+                // グリッド線の描画
+                ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
+                ctx.lineWidth = 1;
+                for (let i = 0; i <= 8; i++) {
+                    let y = displayH * (i / 8);
                     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(displayW, y); ctx.stroke();
-                    let freq = min + (i * (max - min) / 5);
-                    ctx.fillText(Math.round(freq) + "Hz", 5, y - 5);
                 }
 
-                // ピッチ履歴の描画
+                // ピッチ履歴の描画（左から右へ流れる）
                 ctx.beginPath();
                 ctx.strokeStyle = "#00e5ff";
-                ctx.lineWidth = 3;
+                ctx.lineWidth = 4;
+                ctx.lineJoin = "round";
                 pitchHistory.forEach((p, i) => {
-                    let x = (i / 200) * displayW;
+                    let x = (i / 400) * displayW;
                     let y = displayH - ((p - min) / (max - min)) * displayH;
                     i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
                 });
                 ctx.stroke();
 
-                // 先端の現在値表示
+                // 現在位置の強調
                 const lastIdx = pitchHistory.length - 1;
-                const lastX = (lastIdx / 200) * displayW;
+                const lastX = (lastIdx / 400) * displayW;
                 const lastY = displayH - ((pitchHistory[lastIdx] - min) / (max - min)) * displayH;
                 ctx.fillStyle = "#ff007f";
-                ctx.beginPath(); ctx.arc(lastX, lastY, 5, 0, Math.PI * 2); ctx.fill();
-                ctx.fillText(noteNames[midi % 12], lastX + 8, lastY + 4);
+                ctx.beginPath(); ctx.arc(lastX, lastY, 6, 0, Math.PI * 2); ctx.fill();
             }
             requestAnimationFrame(updateLoop);
         }
