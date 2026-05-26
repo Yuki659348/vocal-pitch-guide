@@ -13,6 +13,7 @@
         .font-digital { font-family: 'Orbitron', sans-serif; }
         .vibrato-gradient { background: linear-gradient(90deg, #3b82f6, #ec4899, #f59e0b); }
         .input-gradient { background: linear-gradient(90deg, #10b981, #3b82f6); }
+        input[type=range] { accent-color: #06b6d4; }
     </style>
 </head>
 <body class="flex flex-col h-screen">
@@ -48,6 +49,13 @@
             </div>
         </div>
         
+        <!-- ズーム制御スライダー -->
+        <div class="bg-gray-900/40 px-4 py-2 rounded-xl border border-gray-800 flex items-center gap-4">
+            <span class="text-[10px] text-gray-500 uppercase font-bold tracking-widest">Zoom</span>
+            <input type="range" id="zoom-slider" min="1" max="20" value="10" class="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+            <span id="zoom-val" class="text-[10px] w-8 text-right font-digital text-cyan-400">10%</span>
+        </div>
+
         <div class="bg-gray-900/40 p-4 rounded-2xl border border-gray-800">
             <div class="mt-2 w-full h-8 bg-black rounded-lg border border-gray-700 relative flex items-center">
                 <div id="needle" class="absolute w-0.5 h-8 bg-cyan-400 transition-all duration-300 ease-out z-20 left-1/2"></div>
@@ -72,6 +80,7 @@
         
         const canvas = document.getElementById('pitch-canvas'), ctx = canvas.getContext('2d', { alpha: false });
         const needle = document.getElementById('needle'), vibratoMeter = document.getElementById('vibrato-meter'), inputMeter = document.getElementById('input-meter');
+        const zoomSlider = document.getElementById('zoom-slider');
 
         function resize() {
             canvas.width = canvas.clientWidth * window.devicePixelRatio;
@@ -143,8 +152,11 @@
 
             ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
             
-            // 縦方向のズーム表示（現在のピッチを中心として±10%の範囲をフル表示）
-            const range = smoothedPitch * 0.1;
+            // スライダー値によるズーム制御 (1% 〜 20%)
+            const zoomLevel = zoomSlider.value / 100;
+            document.getElementById('zoom-val').textContent = zoomSlider.value + "%";
+
+            const range = smoothedPitch * zoomLevel;
             const yMin = smoothedPitch - range;
             const yMax = smoothedPitch + range;
 
