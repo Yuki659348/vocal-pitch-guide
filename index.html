@@ -49,7 +49,6 @@
             </div>
         </div>
         
-        <!-- ズーム制御スライダー -->
         <div class="bg-gray-900/40 px-4 py-2 rounded-xl border border-gray-800 flex items-center gap-4">
             <span class="text-[10px] text-gray-500 uppercase font-bold tracking-widest">Zoom</span>
             <input type="range" id="zoom-slider" min="1" max="20" value="10" class="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer">
@@ -152,18 +151,25 @@
 
             ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
             
-            // スライダー値によるズーム制御 (1% 〜 20%)
             const zoomLevel = zoomSlider.value / 100;
             document.getElementById('zoom-val').textContent = zoomSlider.value + "%";
 
+            // 波形の中心とレンジを調整
             const range = smoothedPitch * zoomLevel;
             const yMin = smoothedPitch - range;
             const yMax = smoothedPitch + range;
 
-            ctx.strokeStyle = '#f472b6'; ctx.lineWidth = 3; ctx.beginPath();
+            ctx.strokeStyle = '#f472b6'; 
+            ctx.lineWidth = 3; 
+            ctx.lineJoin = 'round';
+            ctx.beginPath();
+
             pitchHistory.forEach((p, i) => {
-                const x = (i / MAX_HISTORY) * canvas.width;
-                const y = canvas.height - ((p - yMin) / (yMax - yMin)) * canvas.height;
+                const x = (i / (MAX_HISTORY - 1)) * canvas.width;
+                // Clamp y to canvas bounds to prevent extreme overflow
+                let y = canvas.height - ((p - yMin) / (yMax - yMin)) * canvas.height;
+                y = Math.max(0, Math.min(canvas.height, y));
+                
                 i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
             });
             ctx.stroke();
