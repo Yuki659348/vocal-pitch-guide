@@ -12,30 +12,41 @@
         body { font-family: 'Rajdhani', sans-serif; background-color: #05070a; color: #e2e8f0; overflow: hidden; height: 100vh; }
         .font-digital { font-family: 'Orbitron', sans-serif; }
         .vibrato-gradient { background: linear-gradient(90deg, #3b82f6, #ec4899, #f59e0b); }
+        .input-gradient { background: linear-gradient(90deg, #10b981, #3b82f6); }
     </style>
 </head>
 <body class="flex flex-col h-screen">
 
     <header class="flex-none flex justify-between items-center p-4 border-b border-gray-800">
-        <h1 class="text-xs font-bold tracking-widest text-white/50">PROFESSIONAL PITCH & VIBRATO ANALYZER</h1>
+        <h1 class="text-xs font-bold tracking-widest text-white/50">PROFESSIONAL PITCH & INPUT ANALYZER</h1>
         <div id="status-pulse" class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
     </header>
 
     <main class="flex-grow flex flex-col p-4 gap-4 overflow-hidden">
         <div class="grid grid-cols-2 gap-4">
+            <!-- ピッチ表示 -->
             <div class="bg-gray-900/40 p-5 rounded-2xl border border-gray-800">
-                <div id="current-note" class="font-digital text-5xl font-black text-white leading-none">--</div>
+                <div id="current-note" class="font-digital text-4xl font-black text-white leading-none">--</div>
                 <div id="current-hz" class="text-xs text-gray-400 font-digital mt-1">0.00 Hz</div>
             </div>
-            <div class="bg-gray-900/40 p-5 rounded-2xl border border-gray-800 flex flex-col justify-center">
-                <div class="flex justify-between items-center mb-2">
-                    <div class="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Vibrato Depth</div>
-                    <div id="vibrato-percent" class="text-[10px] text-cyan-400 font-digital font-bold">0%</div>
+            <!-- メーター類 -->
+            <div class="bg-gray-900/40 p-3 rounded-2xl border border-gray-800 flex flex-col justify-between">
+                <div>
+                    <div class="flex justify-between text-[9px] text-gray-500 uppercase font-bold tracking-widest mb-1">
+                        <span>Vibrato</span><span id="vibrato-percent">0%</span>
+                    </div>
+                    <div class="h-1.5 w-full bg-black rounded-full overflow-hidden mb-2">
+                        <div id="vibrato-meter" class="h-full w-0 vibrato-gradient transition-all duration-300"></div>
+                    </div>
                 </div>
-                <div class="h-2 w-full bg-black rounded-full overflow-hidden border border-gray-800">
-                    <div id="vibrato-meter" class="h-full w-0 vibrato-gradient transition-all duration-300"></div>
+                <div>
+                    <div class="flex justify-between text-[9px] text-gray-500 uppercase font-bold tracking-widest mb-1">
+                        <span>Input Level</span><span id="input-percent">0%</span>
+                    </div>
+                    <div class="h-1.5 w-full bg-black rounded-full overflow-hidden">
+                        <div id="input-meter" class="h-full w-0 input-gradient transition-all duration-100"></div>
+                    </div>
                 </div>
-                <div id="vibrato-val" class="text-xs text-white font-digital mt-2">0.0 Hz</div>
             </div>
         </div>
         
@@ -62,7 +73,7 @@
         const MAX_HISTORY = 100, SMOOTHING = 0.08;
         
         const canvas = document.getElementById('pitch-canvas'), ctx = canvas.getContext('2d', { alpha: false });
-        const needle = document.getElementById('needle'), vibratoMeter = document.getElementById('vibrato-meter');
+        const needle = document.getElementById('needle'), vibratoMeter = document.getElementById('vibrato-meter'), inputMeter = document.getElementById('input-meter');
 
         function resize() {
             canvas.width = canvas.clientWidth * window.devicePixelRatio;
@@ -70,18 +81,21 @@
         }
         window.onresize = resize; resize();
 
+        function getRMS(buffer) {
+            let sum = 0;
+            for(let i=0; i<buffer.length; i++) sum += buffer[i] * buffer[i];
+            return Math.sqrt(sum / buffer.length);
+        }
+
         function autoCorrelate(buffer, sampleRate) {
-            let size = buffer.length, rms = 0;
-            for (let i = 0; i < size; i++) rms += buffer[i] * buffer[i];
-            rms = Math.sqrt(rms / size);
-            if (rms < 0.01) return -1;
+            let size = buffer.length, rms = getRMS(buffer);
+            if (rms < 0.01) return { pitch: -1, rms };
             
             let c = new Float32Array(size);
             for (let i = 0; i < size; i++) for (let j = 0; j < size - i; j++) c[i] += buffer[j] * buffer[j + i];
-            
             let bestT = -1, threshold = 0.2 * c[0];
             for (let i = 1; i < size; i++) if (c[i] > threshold && c[i] > c[i-1] && c[i] > c[i+1]) { bestT = i; break; }
-            return bestT > 0 ? sampleRate / bestT : -1;
+            return { pitch: bestT > 0 ? sampleRate / bestT : -1, rms };
         }
 
         async function start() {
@@ -99,23 +113,26 @@
         function draw() {
             if (!isRunning) return;
             analyser.getFloatTimeDomainData(timeDomainData);
-            const pitch = autoCorrelate(timeDomainData, audioContext.sampleRate);
+            const res = autoCorrelate(timeDomainData, audioContext.sampleRate);
             
-            if (pitch > 40 && pitch < 2000) {
-                smoothedPitch = (SMOOTHING * pitch) + ((1.0 - SMOOTHING) * (smoothedPitch || pitch));
-                pitchHistory.push(pitch);
+            // 入力レベルメーター更新
+            const inputLevel = Math.min(100, res.rms * 500);
+            inputMeter.style.width = inputLevel + "%";
+            document.getElementById('input-percent').textContent = Math.round(inputLevel) + "%";
+
+            if (res.pitch > 40 && res.pitch < 2000) {
+                smoothedPitch = (SMOOTHING * res.pitch) + ((1.0 - SMOOTHING) * (smoothedPitch || res.pitch));
+                pitchHistory.push(res.pitch);
                 if (pitchHistory.length > MAX_HISTORY) pitchHistory.shift();
 
                 const midiNote = Math.round(12 * Math.log2(smoothedPitch / 440) + 69);
                 const targetFreq = 440 * Math.pow(2, (midiNote - 69) / 12);
                 const cents = 1200 * Math.log2(smoothedPitch / targetFreq);
                 
-                // ビブラートの感度調整：変動幅の係数を下げ、より余裕のあるスケールに設定
                 const vibratoDepth = Math.max(...pitchHistory) - Math.min(...pitchHistory);
-                const vibratoPercent = Math.min(100, (vibratoDepth / smoothedPitch) * 100 * 2.5); // 感度を以前の1/4に調整
+                const vibratoPercent = Math.min(100, (vibratoDepth / smoothedPitch) * 100 * 2.5);
                 
                 vibratoMeter.style.width = vibratoPercent + "%";
-                document.getElementById('vibrato-val').textContent = (vibratoDepth / 10).toFixed(1) + " Hz";
                 document.getElementById('vibrato-percent').textContent = Math.round(vibratoPercent) + "%";
 
                 needle.style.left = `${Math.max(0, Math.min(100, (cents + 50)))}%`;
@@ -125,11 +142,9 @@
             }
 
             ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-            
             ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 1;
             for(let i=0; i<=10; i++) { ctx.beginPath(); ctx.moveTo(canvas.width*(i/10), 0); ctx.lineTo(canvas.width*(i/10), canvas.height); ctx.stroke(); }
-            for(let i=0; i<=8; i++) { ctx.beginPath(); ctx.moveTo(0, canvas.height*(i/8)); ctx.lineTo(canvas.width, canvas.height*(i/8)); ctx.stroke(); }
-
+            
             ctx.strokeStyle = '#f472b6'; ctx.lineWidth = 3; ctx.beginPath();
             pitchHistory.forEach((p, i) => {
                 const x = (i / MAX_HISTORY) * canvas.width;
