@@ -5,162 +5,106 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>VOICE PITCH MONITOR</title>
     
-    <link rel="manifest" href="manifest.json">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3231/3231365.png">
-    
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@500;700&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Rajdhani:wght@500;700&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     
     <style>
-        body { 
-            font-family: 'Rajdhani', 'Noto Sans JP', sans-serif; 
-            background-color: #05070a; 
-            color: #e2e8f0; 
-            overflow: hidden; 
-            height: 100dvh;
-            padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
-        }
+        body { font-family: 'Rajdhani', sans-serif; background-color: #05070a; color: #e2e8f0; overflow: hidden; height: 100dvh; }
         .font-digital { font-family: 'Orbitron', sans-serif; }
-        input[type=range] { accent-color: #00e5ff; }
-        select { background: #1f2937; color: #fff; border: 1px solid #374151; }
     </style>
 </head>
 <body class="flex flex-col h-[100dvh]">
 
-    <header class="flex-none flex justify-between items-center bg-gray-950/50 p-4 border-b border-gray-800 backdrop-blur-md">
-        <h1 class="text-sm font-bold tracking-widest text-white/70">
-            <span class="text-[#00e5ff] font-digital">PITCH MONITOR PRO</span>
-        </h1>
+    <header class="flex-none flex justify-between items-center p-4 border-b border-gray-800">
+        <h1 class="text-sm font-bold tracking-widest text-white/70">PITCH MONITOR LITE</h1>
         <div id="status-pulse" class="w-2 h-2 rounded-full bg-gray-700"></div>
     </header>
 
-    <main class="flex-grow flex flex-col p-4 gap-4 overflow-hidden min-h-0">
-        <div class="flex justify-between items-end bg-gray-900/40 p-4 rounded-2xl border border-gray-800">
-            <div class="text-left">
-                <div id="current-note" class="font-digital text-5xl font-black text-gray-500 transition-colors duration-300">--</div>
-                <div id="current-hz" class="text-sm text-gray-500 font-digital mt-1">0.00 Hz</div>
-            </div>
-            <div class="flex gap-4">
-                <select id="mode-select" class="p-2 rounded-lg text-xs">
-                    <option value="voice">ボイスモード</option>
-                    <option value="instrument">チューナーモード</option>
-                </select>
-            </div>
+    <main class="flex-grow flex flex-col p-4 gap-4">
+        <div class="bg-gray-900/40 p-4 rounded-2xl border border-gray-800">
+            <div id="current-note" class="font-digital text-5xl font-black text-white">--</div>
+            <div id="current-hz" class="text-sm text-gray-400 font-digital">0.00 Hz</div>
         </div>
-
-        <section class="flex-grow bg-black/20 border border-gray-800 rounded-2xl p-2 relative overflow-hidden min-h-[200px]">
+        <section class="flex-grow bg-black/20 border border-gray-800 rounded-2xl p-2 relative overflow-hidden">
             <canvas id="pitch-canvas" class="w-full h-full block"></canvas>
         </section>
     </main>
 
-    <footer class="flex-none p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-        <button id="btn-toggle-mic" class="w-full bg-[#00e5ff]/10 border border-[#00e5ff]/30 text-[#00e5ff] hover:bg-[#00e5ff]/20 font-bold py-4 rounded-xl flex items-center justify-center gap-3 transition active:scale-95">
-            <i class="fa-solid fa-microphone"></i> <span id="btn-text">マイクを有効化</span>
+    <footer class="p-4">
+        <button id="btn-toggle-mic" class="w-full bg-[#00e5ff]/10 border border-[#00e5ff]/30 text-[#00e5ff] py-4 rounded-xl font-bold">
+            マイクを有効化
         </button>
     </footer>
 
     <script>
-        let audioContext = null, analyser = null, biquadFilter = null, micStream = null, isRunning = false;
-        let pitchHistory = [], smoothedPitch = 0, uiSmoothedPitch = 0;
+        let audioContext, analyser, micStream, isRunning = false;
+        let pitchHistory = new Float32Array(200); 
+        let timeDomainData = new Float32Array(8192);
         
         const canvas = document.getElementById('pitch-canvas');
-        const ctx = canvas.getContext('2d');
-        const modeSelect = document.getElementById('mode-select');
-        const currentNoteEl = document.getElementById('current-note'), currentHzEl = document.getElementById('current-hz');
-        const statusPulse = document.getElementById('status-pulse'), btnToggleMic = document.getElementById('btn-toggle-mic'), btnText = document.getElementById('btn-text');
-
-        function resizeCanvas() {
-            canvas.width = canvas.clientWidth * window.devicePixelRatio;
-            canvas.height = canvas.clientHeight * window.devicePixelRatio;
-            ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-        }
-        window.addEventListener('resize', resizeCanvas);
-        resizeCanvas();
-
-        // チューナーグレードの精度へ引き上げた自己相関アルゴリズム
+        const ctx = canvas.getContext('2d', { alpha: false });
+        const btnToggleMic = document.getElementById('btn-toggle-mic');
+        
         function autoCorrelate(buffer, sampleRate) {
-            let size = buffer.length, rms = 0;
+            let size = buffer.length;
+            let rms = 0;
             for (let i = 0; i < size; i++) rms += buffer[i] * buffer[i];
-            rms = Math.sqrt(rms / size);
-            const gate = modeSelect.value === 'instrument' ? 0.001 : 0.002;
-            if (rms < gate) return -1;
+            if (Math.sqrt(rms / size) < 0.002) return -1;
             
             let c = new Float32Array(size);
             for (let i = 0; i < size; i++) for (let j = 0; j < size - i; j++) c[i] += buffer[j] * buffer[j + i];
             
-            // ピーク検出のしきい値をより精密に
             let bestT = -1, threshold = 0.3 * c[0];
             for (let i = 1; i < size; i++) if (c[i] > threshold && c[i] > c[i-1] && c[i] > c[i+1]) { bestT = i; break; }
             
-            // 放物線補間をさらに精密化
-            if (bestT !== -1 && bestT > 0 && bestT < size - 1) {
+            if (bestT > 0 && bestT < size - 1) {
                 let s1 = c[bestT - 1], s2 = c[bestT], s3 = c[bestT + 1];
-                let shift = (s1 - s3) / (2 * (s1 - 2 * s2 + s3));
-                return sampleRate / (bestT + shift);
+                return sampleRate / (bestT + (s1 - s3) / (2 * (s1 - 2 * s2 + s3)));
             }
-            return bestT === -1 ? -1 : sampleRate / bestT;
+            return -1;
         }
 
         async function startMonitoring() {
-            try {
-                if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                if (audioContext.state === 'suspended') await audioContext.resume();
-                micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
-                const source = audioContext.createMediaStreamSource(micStream);
-                analyser = audioContext.createAnalyser(); 
-                // 解像度を倍に引き上げ
-                analyser.fftSize = 16384; 
-                biquadFilter = audioContext.createBiquadFilter(); 
-                biquadFilter.type = "lowpass"; biquadFilter.frequency.value = 2500; 
-                source.connect(biquadFilter); biquadFilter.connect(analyser);
-                isRunning = true; btnText.textContent = "停止"; statusPulse.className = "w-2 h-2 rounded-full bg-emerald-400 animate-pulse";
-                requestAnimationFrame(updateLoop);
-            } catch (e) { console.error(e); }
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const source = audioContext.createMediaStreamSource(micStream);
+            analyser = audioContext.createAnalyser();
+            analyser.fftSize = 8192; // 負荷軽減のために8192へ
+            source.connect(analyser);
+            isRunning = true;
+            btnToggleMic.textContent = "停止";
+            requestAnimationFrame(updateLoop);
         }
-
-        function stopMonitoring() { 
-            if (micStream) micStream.getTracks().forEach(t => t.stop());
-            isRunning = false; btnText.textContent = "マイクを有効化"; statusPulse.className = "w-2 h-2 rounded-full bg-gray-700"; 
-        }
-        btnToggleMic.addEventListener('click', () => isRunning ? stopMonitoring() : startMonitoring());
 
         function updateLoop() {
             if (!isRunning) return;
-            const data = new Float32Array(analyser.fftSize); analyser.getFloatTimeDomainData(data);
-            const pitch = autoCorrelate(data, audioContext.sampleRate);
-            const displayW = canvas.width / window.devicePixelRatio;
-            const displayH = canvas.height / window.devicePixelRatio;
-
-            if (pitch > 40 && pitch < 2000) {
-                // UI平滑化係数をより緻密に制御
-                smoothedPitch = (pitch * 0.05) + (smoothedPitch * 0.95);
-                uiSmoothedPitch = (pitch * 0.01) + (uiSmoothedPitch * 0.99);
-
-                pitchHistory.push(smoothedPitch); if (pitchHistory.length > 400) pitchHistory.shift();
-
-                const midi = Math.round(12 * Math.log2(uiSmoothedPitch / 440) + 69);
+            analyser.getFloatTimeDomainData(timeDomainData);
+            const pitch = autoCorrelate(timeDomainData, audioContext.sampleRate);
+            
+            if (pitch > 40) {
                 const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-                currentNoteEl.textContent = noteNames[midi % 12];
-                currentNoteEl.classList.remove('text-gray-500'); currentNoteEl.classList.add('text-white');
-                currentHzEl.textContent = uiSmoothedPitch.toFixed(3) + " Hz";
-
-                const min = 50, max = 2000;
-                ctx.clearRect(0, 0, displayW, displayH);
-                ctx.beginPath();
-                ctx.strokeStyle = "#00e5ff";
-                ctx.lineWidth = 4;
-                pitchHistory.forEach((p, i) => {
-                    let x = (i / 400) * displayW;
-                    let y = displayH - ((p - min) / (max - min)) * displayH;
-                    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-                });
-                ctx.stroke();
+                const midi = Math.round(12 * Math.log2(pitch / 440) + 69);
+                document.getElementById('current-note').textContent = noteNames[midi % 12];
+                document.getElementById('current-hz').textContent = pitch.toFixed(1) + " Hz";
             }
+            
+            // 描画の簡略化
+            ctx.fillStyle = '#05070a';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.strokeStyle = '#00e5ff';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            for(let i=0; i<canvas.width; i+=10) {
+                ctx.moveTo(i, canvas.height/2 + Math.sin(i*0.05 + Date.now()*0.01)*50);
+                ctx.lineTo(i+5, canvas.height/2 + Math.sin((i+5)*0.05 + Date.now()*0.01)*50);
+            }
+            ctx.stroke();
+            
             requestAnimationFrame(updateLoop);
         }
+
+        btnToggleMic.onclick = () => isRunning ? location.reload() : startMonitoring();
     </script>
 </body>
 </html>
