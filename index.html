@@ -45,12 +45,6 @@
             </div>
             
             <div class="space-y-4">
-                <select id="range-select" class="w-full bg-gray-800 text-white p-2 rounded-lg border border-gray-700 text-center font-digital">
-                    <option value="low">低域 (60-400Hz)</option>
-                    <option value="mid" selected>中域 (200-800Hz)</option>
-                    <option value="high">高域 (600-1500Hz)</option>
-                </select>
-
                 <div class="space-y-1">
                     <div class="flex justify-between text-[10px] text-gray-500 uppercase tracking-widest">
                         <span>表示倍率 (Zoom)</span>
@@ -91,11 +85,8 @@
         const ctx = canvas.getContext('2d');
         const zoomSlider = document.getElementById('zoom-slider'), zoomValEl = document.getElementById('zoom-val');
         const currentNoteEl = document.getElementById('current-note'), currentHzEl = document.getElementById('current-hz');
-        const rangeSelect = document.getElementById('range-select');
         const statusPulse = document.getElementById('status-pulse'), btnToggleMic = document.getElementById('btn-toggle-mic'), btnText = document.getElementById('btn-text');
         const vibratoEl = document.getElementById('vibrato-val');
-
-        const ranges = { low: [60, 400], mid: [200, 800], high: [600, 1500] };
 
         function resizeCanvas() {
             canvas.width = canvas.clientWidth * window.devicePixelRatio;
@@ -111,7 +102,6 @@
             let size = buffer.length, rms = 0;
             for (let i = 0; i < size; i++) rms += buffer[i] * buffer[i];
             rms = Math.sqrt(rms / size);
-            // 感度向上：rmsの閾値を0.01から0.005へ引き下げ
             if (rms < 0.005) return -1;
             let c = new Float32Array(size);
             for (let i = 0; i < size; i++) for (let j = 0; j < size - i; j++) c[i] += buffer[j] * buffer[j + i];
@@ -148,7 +138,6 @@
             const displayH = canvas.height / window.devicePixelRatio;
 
             if (pitch > 50 && pitch < 2000) {
-                // 平滑化強化：重み付けを 0.05 (よりゆっくり) に変更
                 smoothedPitch = (pitch * 0.05) + (smoothedPitch * 0.95);
                 pitchHistory.push(smoothedPitch); if (pitchHistory.length > 400) pitchHistory.shift();
                 
@@ -162,18 +151,23 @@
                 currentHzEl.textContent = smoothedPitch.toFixed(1) + " Hz";
 
                 const zoom = parseFloat(zoomSlider.value);
-                const [baseMin, baseMax] = ranges[rangeSelect.value];
-                const rangeWidth = (baseMax - baseMin) / zoom;
-                const min = Math.max(0, smoothedPitch - (rangeWidth / 2));
+                const rangeWidth = 400 / zoom;
+                const min = Math.max(50, smoothedPitch - (rangeWidth / 2));
                 const max = Math.min(2000, smoothedPitch + (rangeWidth / 2));
 
                 ctx.clearRect(0, 0, displayW, displayH);
                 
-                ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
-                ctx.lineWidth = 1;
-                for (let i = 0; i <= 8; i++) {
-                    let y = displayH * (i / 8);
-                    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(displayW, y); ctx.stroke();
+                // 音階グリッドの描画
+                ctx.fillStyle = "rgba(255, 255, 255, 0.2)";
+                ctx.font = "12px Orbitron";
+                for (let i = 0; i < 128; i++) {
+                    const freq = 440 * Math.pow(2, (i - 69) / 12);
+                    if (freq > min && freq < max) {
+                        const y = displayH - ((freq - min) / (max - min)) * displayH;
+                        ctx.strokeStyle = (i % 12 === 0) ? "rgba(255, 255, 255, 0.2)" : "rgba(255, 255, 255, 0.05)";
+                        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(displayW, y); ctx.stroke();
+                        if (i % 12 === 0) ctx.fillText(noteNames[i % 12], 5, y - 5);
+                    }
                 }
 
                 ctx.beginPath();
