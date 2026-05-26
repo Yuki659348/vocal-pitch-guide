@@ -70,7 +70,8 @@
     <script>
         let audioContext, analyser, timeDomainData, isRunning = false;
         let pitchHistory = [], smoothedPitch = 0;
-        // スムージング係数を下げて追従を緩やかにし、表示を安定させます
+        let silenceCount = 0;
+        const HOLD_THRESHOLD = 15; // 音が途切れた際、数フレーム分は直前のピッチを保持する
         const MAX_HISTORY = 100, SMOOTHING = 0.04; 
         
         const canvas = document.getElementById('pitch-canvas'), ctx = canvas.getContext('2d', { alpha: false });
@@ -90,7 +91,8 @@
 
         function autoCorrelate(buffer, sampleRate) {
             let size = buffer.length, rms = getRMS(buffer);
-            if (rms < 0.01) return { pitch: -1, rms };
+            // 無音判定の閾値を少し下げ、ロングトーン中の微細な減衰に対応
+            if (rms < 0.005) return { pitch: -1, rms };
             
             let c = new Float32Array(size);
             for (let i = 0; i < size; i++) for (let j = 0; j < size - i; j++) c[i] += buffer[j] * buffer[j + i];
@@ -121,7 +123,7 @@
             document.getElementById('input-percent').textContent = Math.round(inputLevel) + "%";
 
             if (res.pitch > 40 && res.pitch < 2000) {
-                // 指数移動平均による安定化
+                silenceCount = 0; // 音が出ているのでリセット
                 smoothedPitch = (SMOOTHING * res.pitch) + ((1.0 - SMOOTHING) * (smoothedPitch || res.pitch));
                 pitchHistory.push(res.pitch);
                 if (pitchHistory.length > MAX_HISTORY) pitchHistory.shift();
@@ -140,6 +142,13 @@
                 const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
                 document.getElementById('current-note').textContent = noteNames[midiNote % 12];
                 document.getElementById('current-hz').textContent = smoothedPitch.toFixed(1) + " Hz";
+            } else {
+                // 音が途切れた時、一定フレームまでは計測値をリセットせず保持する
+                silenceCount++;
+                if (silenceCount > HOLD_THRESHOLD) {
+                    document.getElementById('current-note').textContent = "--";
+                    document.getElementById('current-hz').textContent = "0.00 Hz";
+                }
             }
 
             ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
