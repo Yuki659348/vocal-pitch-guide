@@ -11,62 +11,67 @@
     <style>
         body { font-family: 'Rajdhani', sans-serif; background-color: #05070a; color: #e2e8f0; overflow: hidden; height: 100vh; }
         .font-digital { font-family: 'Orbitron', sans-serif; }
+        .vibrato-gradient { background: linear-gradient(90deg, #3b82f6, #ec4899, #f59e0b); }
     </style>
 </head>
 <body class="flex flex-col h-screen">
 
     <header class="flex-none flex justify-between items-center p-4 border-b border-gray-800">
-        <h1 class="text-xs font-bold tracking-widest text-white/50">PITCH TRACE MONITOR</h1>
-        <div id="status-pulse" class="w-2 h-2 rounded-full bg-gray-700"></div>
+        <h1 class="text-xs font-bold tracking-widest text-white/50">PROFESSIONAL PITCH & VIBRATO ANALYZER</h1>
+        <div id="status-pulse" class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
     </header>
 
     <main class="flex-grow flex flex-col p-4 gap-4 overflow-hidden">
-        <div class="bg-gray-900/40 p-5 rounded-2xl border border-gray-800">
-            <div class="flex justify-between items-end">
+        <!-- 上部：メイン表示 -->
+        <div class="grid grid-cols-2 gap-4">
+            <div class="bg-gray-900/40 p-5 rounded-2xl border border-gray-800">
                 <div id="current-note" class="font-digital text-5xl font-black text-white leading-none">--</div>
-                <div class="text-right text-[10px] text-gray-500 font-digital">
-                    <div id="current-hz">0.00 Hz</div>
-                    <div id="vibrato-status">Vibrato: 0.0 Hz</div>
-                </div>
+                <div id="current-hz" class="text-xs text-gray-400 font-digital mt-1">0.00 Hz</div>
             </div>
-            <div class="mt-4 w-full h-8 bg-black rounded-lg border border-gray-700 relative flex items-center">
+            <div class="bg-gray-900/40 p-5 rounded-2xl border border-gray-800 flex flex-col justify-center">
+                <div class="flex justify-between items-center mb-2">
+                    <div class="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Vibrato Depth</div>
+                    <div id="vibrato-percent" class="text-[10px] text-cyan-400 font-digital font-bold">0%</div>
+                </div>
+                <div class="h-2 w-full bg-black rounded-full overflow-hidden border border-gray-800">
+                    <div id="vibrato-meter" class="h-full w-0 vibrato-gradient transition-all duration-300"></div>
+                </div>
+                <div id="vibrato-val" class="text-xs text-white font-digital mt-2">0.0 Hz</div>
+            </div>
+        </div>
+        
+        <!-- 中央：チューナーメーター -->
+        <div class="bg-gray-900/40 p-4 rounded-2xl border border-gray-800">
+            <div class="mt-2 w-full h-8 bg-black rounded-lg border border-gray-700 relative flex items-center">
                 <div id="needle" class="absolute w-0.5 h-8 bg-cyan-400 transition-all duration-300 ease-out z-20 left-1/2"></div>
             </div>
         </div>
         
+        <!-- 下部：波形グラフ -->
         <div class="flex-grow bg-black/20 border border-gray-800 rounded-2xl p-1 relative overflow-hidden">
             <canvas id="pitch-canvas" class="w-full h-full"></canvas>
-            <div class="absolute bottom-4 right-4 bg-gray-900/80 p-2 rounded-lg border border-gray-700">
-                <input id="zoom-slider" type="range" min="0.1" max="5" step="0.1" value="1.5" class="w-24 accent-cyan-500">
-            </div>
         </div>
     </main>
 
     <footer class="p-4">
-        <button id="btn-toggle-mic" class="w-full bg-cyan-900/30 border border-cyan-500/30 text-cyan-400 py-4 rounded-xl font-bold tracking-wider">
+        <button id="btn-toggle-mic" class="w-full bg-cyan-900/30 border border-cyan-500/30 text-cyan-400 py-4 rounded-xl font-bold tracking-wider hover:bg-cyan-900/50 transition">
             マイクを有効化
         </button>
     </footer>
 
     <script>
         let audioContext, analyser, timeDomainData, isRunning = false;
-        let pitchHistory = [];
-        let smoothedPitch = 0;
-        const MAX_HISTORY = 100;
-        const SMOOTHING = 0.08;
+        let pitchHistory = [], smoothedPitch = 0;
+        const MAX_HISTORY = 100, SMOOTHING = 0.08;
         
-        const canvas = document.getElementById('pitch-canvas');
-        const ctx = canvas.getContext('2d', { alpha: false });
-        const btnToggleMic = document.getElementById('btn-toggle-mic');
-        const zoomSlider = document.getElementById('zoom-slider');
-        const needle = document.getElementById('needle');
+        const canvas = document.getElementById('pitch-canvas'), ctx = canvas.getContext('2d', { alpha: false });
+        const needle = document.getElementById('needle'), vibratoMeter = document.getElementById('vibrato-meter');
 
         function resize() {
             canvas.width = canvas.clientWidth * window.devicePixelRatio;
             canvas.height = canvas.clientHeight * window.devicePixelRatio;
         }
-        window.onresize = resize;
-        resize();
+        window.onresize = resize; resize();
 
         function autoCorrelate(buffer, sampleRate) {
             let size = buffer.length, rms = 0;
@@ -79,7 +84,6 @@
             
             let bestT = -1, threshold = 0.2 * c[0];
             for (let i = 1; i < size; i++) if (c[i] > threshold && c[i] > c[i-1] && c[i] > c[i+1]) { bestT = i; break; }
-            
             return bestT > 0 ? sampleRate / bestT : -1;
         }
 
@@ -91,19 +95,17 @@
             timeDomainData = new Float32Array(analyser.fftSize);
             audioContext.createMediaStreamSource(stream).connect(analyser);
             isRunning = true;
-            btnToggleMic.textContent = "停止";
+            document.getElementById('btn-toggle-mic').textContent = "停止";
             requestAnimationFrame(draw);
         }
 
         function draw() {
             if (!isRunning) return;
-            
             analyser.getFloatTimeDomainData(timeDomainData);
             const pitch = autoCorrelate(timeDomainData, audioContext.sampleRate);
             
             if (pitch > 40 && pitch < 2000) {
                 smoothedPitch = (SMOOTHING * pitch) + ((1.0 - SMOOTHING) * (smoothedPitch || pitch));
-                
                 pitchHistory.push(pitch);
                 if (pitchHistory.length > MAX_HISTORY) pitchHistory.shift();
 
@@ -111,48 +113,37 @@
                 const targetFreq = 440 * Math.pow(2, (midiNote - 69) / 12);
                 const cents = 1200 * Math.log2(smoothedPitch / targetFreq);
                 
-                needle.style.left = `${Math.max(0, Math.min(100, (cents + 50)))}%`;
+                // ビブラート計算：変動幅(Hz)を基準周波数で割ってパーセント化（最大10%程度を天井とする）
+                const vibratoDepth = Math.max(...pitchHistory) - Math.min(...pitchHistory);
+                const vibratoPercent = Math.min(100, (vibratoDepth / smoothedPitch) * 100 * 10);
                 
+                vibratoMeter.style.width = Math.min(100, vibratoDepth * 2) + "%";
+                document.getElementById('vibrato-val').textContent = (vibratoDepth / 10).toFixed(1) + " Hz";
+                document.getElementById('vibrato-percent').textContent = vibratoPercent.toFixed(0) + "%";
+
+                needle.style.left = `${Math.max(0, Math.min(100, (cents + 50)))}%`;
                 const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
                 document.getElementById('current-note').textContent = noteNames[midiNote % 12];
                 document.getElementById('current-hz').textContent = smoothedPitch.toFixed(1) + " Hz";
             }
 
-            ctx.fillStyle = '#05070a';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
             
-            ctx.strokeStyle = '#1e293b';
-            ctx.lineWidth = 1;
-            for(let i = 0; i <= 10; i++) {
-                ctx.beginPath();
-                ctx.moveTo(canvas.width * (i/10), 0);
-                ctx.lineTo(canvas.width * (i/10), canvas.height);
-                ctx.stroke();
-            }
-            for(let i = 0; i <= 8; i++) {
-                ctx.beginPath();
-                ctx.moveTo(0, canvas.height * (i/8));
-                ctx.lineTo(canvas.width, canvas.height * (i/8));
-                ctx.stroke();
-            }
+            ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 1;
+            for(let i=0; i<=10; i++) { ctx.beginPath(); ctx.moveTo(canvas.width*(i/10), 0); ctx.lineTo(canvas.width*(i/10), canvas.height); ctx.stroke(); }
+            for(let i=0; i<=8; i++) { ctx.beginPath(); ctx.moveTo(0, canvas.height*(i/8)); ctx.lineTo(canvas.width, canvas.height*(i/8)); ctx.stroke(); }
 
-            ctx.strokeStyle = '#f472b6';
-            ctx.lineWidth = 3;
-            ctx.beginPath();
-            const h = canvas.height;
-            const w = canvas.width;
+            ctx.strokeStyle = '#f472b6'; ctx.lineWidth = 3; ctx.beginPath();
             pitchHistory.forEach((p, i) => {
-                const x = (i / MAX_HISTORY) * w;
-                // 表示範囲を 40Hz ~ 2500Hz に広げてクリッピングを防ぐ
-                const y = h - ((Math.log2(p/40) / Math.log2(2500/40)) * h);
+                const x = (i / MAX_HISTORY) * canvas.width;
+                const y = canvas.height - ((Math.log2(p/40) / Math.log2(2500/40)) * canvas.height);
                 i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
             });
             ctx.stroke();
-
             requestAnimationFrame(draw);
         }
 
-        btnToggleMic.onclick = () => isRunning ? location.reload() : start();
+        document.getElementById('btn-toggle-mic').onclick = () => isRunning ? location.reload() : start();
     </script>
 </body>
 </html>
