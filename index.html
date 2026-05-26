@@ -51,8 +51,10 @@
     <script>
         let audioContext, analyser, timeDomainData, isRunning = false;
         let frameCounter = 0;
-        let pitchHistory = []; // ピッチの軌跡データ
+        let pitchHistory = [];
+        let smoothedPitch = 0;
         const MAX_HISTORY = 100;
+        const SMOOTHING = 0.16; // iOS版と同等の平滑化係数
         
         const canvas = document.getElementById('pitch-canvas');
         const ctx = canvas.getContext('2d', { alpha: false });
@@ -70,12 +72,14 @@
         function autoCorrelate(buffer, sampleRate) {
             let size = buffer.length, rms = 0;
             for (let i = 0; i < size; i++) rms += buffer[i] * buffer[i];
-            if (Math.sqrt(rms / size) < 0.01) return -1;
+            rms = Math.sqrt(rms / size);
+            // 閾値を下げて感度を向上（iOSアプリ同等の感度）
+            if (rms < 0.01) return -1;
             
             let c = new Float32Array(size);
             for (let i = 0; i < size; i++) for (let j = 0; j < size - i; j++) c[i] += buffer[j] * buffer[j + i];
             
-            let bestT = -1, threshold = 0.3 * c[0];
+            let bestT = -1, threshold = 0.2 * c[0];
             for (let i = 1; i < size; i++) if (c[i] > threshold && c[i] > c[i-1] && c[i] > c[i+1]) { bestT = i; break; }
             
             return bestT > 0 ? sampleRate / bestT : -1;
@@ -101,28 +105,38 @@
                 analyser.getFloatTimeDomainData(timeDomainData);
                 const pitch = autoCorrelate(timeDomainData, audioContext.sampleRate);
                 
-                if (pitch > 40) {
-                    pitchHistory.push(pitch);
+                if (pitch > 40 && pitch < 2000) {
+                    // EMA平滑化の適用
+                    smoothedPitch = (SMOOTHING * pitch) + ((1.0 - SMOOTHING) * (smoothedPitch || pitch));
+                    pitchHistory.push(smoothedPitch);
                     if (pitchHistory.length > MAX_HISTORY) pitchHistory.shift();
 
-                    const targetFreq = 440 * Math.pow(2, (Math.round(12 * Math.log2(pitch / 440)) / 69));
-                    const cents = 1200 * Math.log2(pitch / targetFreq);
+                    // 音名とセント計算（修正済み）
+                    const midiNote = Math.round(12 * Math.log2(smoothedPitch / 440) + 69);
+                    const targetFreq = 440 * Math.pow(2, (midiNote - 69) / 12);
+                    const cents = 1200 * Math.log2(smoothedPitch / targetFreq);
+                    
                     needle.style.left = `${Math.max(0, Math.min(100, (cents + 50)))}%`;
+                    
+                    const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+                    document.getElementById('current-note').textContent = noteNames[midiNote % 12];
+                    document.getElementById('current-hz').textContent = smoothedPitch.toFixed(1) + " Hz";
                 }
             }
 
             ctx.fillStyle = '#05070a';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             
-            // ピッチ軌跡の描画
-            ctx.strokeStyle = '#f472b6'; // ピンク色で軌跡を表示
+            ctx.strokeStyle = '#f472b6';
             ctx.lineWidth = 3;
             ctx.beginPath();
             const h = canvas.height;
             const w = canvas.width;
+            
             pitchHistory.forEach((p, i) => {
                 const x = (i / MAX_HISTORY) * w;
-                const y = h - ((Math.log2(p/50) / Math.log2(2000/50)) * h);
+                // ピッチ変化を見やすく調整
+                const y = h - ((Math.log2(p/60) / Math.log2(1500/60)) * h);
                 i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
             });
             ctx.stroke();
