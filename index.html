@@ -70,7 +70,8 @@
     <script>
         let audioContext, analyser, timeDomainData, isRunning = false;
         let pitchHistory = [], smoothedPitch = 0;
-        const MAX_HISTORY = 100, SMOOTHING = 0.08;
+        // スムージング係数を下げて追従を緩やかにし、表示を安定させます
+        const MAX_HISTORY = 100, SMOOTHING = 0.04; 
         
         const canvas = document.getElementById('pitch-canvas'), ctx = canvas.getContext('2d', { alpha: false });
         const needle = document.getElementById('needle'), vibratoMeter = document.getElementById('vibrato-meter'), inputMeter = document.getElementById('input-meter');
@@ -115,12 +116,12 @@
             analyser.getFloatTimeDomainData(timeDomainData);
             const res = autoCorrelate(timeDomainData, audioContext.sampleRate);
             
-            // 入力レベルメーター更新
             const inputLevel = Math.min(100, res.rms * 500);
             inputMeter.style.width = inputLevel + "%";
             document.getElementById('input-percent').textContent = Math.round(inputLevel) + "%";
 
             if (res.pitch > 40 && res.pitch < 2000) {
+                // 指数移動平均による安定化
                 smoothedPitch = (SMOOTHING * res.pitch) + ((1.0 - SMOOTHING) * (smoothedPitch || res.pitch));
                 pitchHistory.push(res.pitch);
                 if (pitchHistory.length > MAX_HISTORY) pitchHistory.shift();
@@ -130,7 +131,6 @@
                 const cents = 1200 * Math.log2(smoothedPitch / targetFreq);
                 
                 const vibratoDepth = Math.max(...pitchHistory) - Math.min(...pitchHistory);
-                // ビブラート感度を下げました（係数を 2.5 から 1.0 に変更）
                 const vibratoPercent = Math.min(100, (vibratoDepth / smoothedPitch) * 100 * 1.0);
                 
                 vibratoMeter.style.width = vibratoPercent + "%";
