@@ -88,7 +88,7 @@
 
     <script>
         let audioContext = null, analyser = null, biquadFilter = null, micStream = null, isRunning = false;
-        let pitchHistory = [], smoothedPitch = 0, vibratoBuffer = [];
+        let pitchHistory = [], smoothedPitch = 0, uiSmoothedPitch = 0, vibratoBuffer = [];
         
         const canvas = document.getElementById('pitch-canvas');
         const ctx = canvas.getContext('2d');
@@ -112,8 +112,6 @@
             let size = buffer.length, rms = 0;
             for (let i = 0; i < size; i++) rms += buffer[i] * buffer[i];
             rms = Math.sqrt(rms / size);
-            
-            // モードによってノイズゲートの感度を調整
             const gate = modeSelect.value === 'instrument' ? 0.005 : 0.002;
             if (rms < gate) return -1;
             
@@ -154,19 +152,24 @@
             const displayH = canvas.height / window.devicePixelRatio;
 
             if (pitch > 50 && pitch < 2000) {
-                // 声モードはビブラート（揺れ）を残すため0.02、楽器は安定性を重視して0.01へ
-                const smooth = modeSelect.value === 'instrument' ? 0.01 : 0.02;
-                smoothedPitch = (pitch * smooth) + (smoothedPitch * (1 - smooth));
+                // グラフ追従用（速め）
+                const graphSmooth = modeSelect.value === 'instrument' ? 0.08 : 0.15;
+                smoothedPitch = (pitch * graphSmooth) + (smoothedPitch * (1 - graphSmooth));
+                
+                // UI表示用（非常に遅め）
+                const uiSmooth = 0.02;
+                uiSmoothedPitch = (pitch * uiSmooth) + (uiSmoothedPitch * (1 - uiSmooth));
+
                 pitchHistory.push(smoothedPitch); if (pitchHistory.length > 400) pitchHistory.shift();
                 
                 vibratoBuffer.push(smoothedPitch); if (vibratoBuffer.length > 30) vibratoBuffer.shift();
                 let variance = vibratoBuffer.reduce((a,b)=>a + Math.pow(b - (vibratoBuffer.reduce((s,v)=>s+v)/30), 2), 0) / 30;
                 vibratoEl.textContent = Math.sqrt(variance).toFixed(1);
 
-                const midi = Math.round(12 * Math.log2(smoothedPitch / 440) + 69);
+                const midi = Math.round(12 * Math.log2(uiSmoothedPitch / 440) + 69);
                 const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
                 currentNoteEl.textContent = noteNames[midi % 12];
-                currentHzEl.textContent = smoothedPitch.toFixed(1) + " Hz";
+                currentHzEl.textContent = uiSmoothedPitch.toFixed(1) + " Hz";
 
                 const zoom = parseFloat(zoomSlider.value);
                 const rangeWidth = 400 / zoom;
