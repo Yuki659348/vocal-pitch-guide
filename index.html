@@ -18,22 +18,20 @@
 <body class="flex flex-col h-screen">
 
     <header class="flex-none flex justify-between items-center p-4 border-b border-gray-800">
-        <h1 class="text-xs font-bold tracking-widest text-white/50">PROFESSIONAL PITCH & INPUT ANALYZER</h1>
+        <h1 class="text-xs font-bold tracking-widest text-white/50">PROFESSIONAL PITCH & VIBRATO ANALYZER</h1>
         <div id="status-pulse" class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
     </header>
 
     <main class="flex-grow flex flex-col p-4 gap-4 overflow-hidden">
         <div class="grid grid-cols-2 gap-4">
-            <!-- ピッチ表示 -->
             <div class="bg-gray-900/40 p-5 rounded-2xl border border-gray-800">
                 <div id="current-note" class="font-digital text-4xl font-black text-white leading-none">--</div>
                 <div id="current-hz" class="text-xs text-gray-400 font-digital mt-1">0.00 Hz</div>
             </div>
-            <!-- メーター類 -->
             <div class="bg-gray-900/40 p-3 rounded-2xl border border-gray-800 flex flex-col justify-between">
                 <div>
                     <div class="flex justify-between text-[9px] text-gray-500 uppercase font-bold tracking-widest mb-1">
-                        <span>Vibrato</span><span id="vibrato-percent">0%</span>
+                        <span>Vibrato Depth</span><span id="vibrato-percent">0%</span>
                     </div>
                     <div class="h-1.5 w-full bg-black rounded-full overflow-hidden mb-2">
                         <div id="vibrato-meter" class="h-full w-0 vibrato-gradient transition-all duration-300"></div>
@@ -69,10 +67,8 @@
 
     <script>
         let audioContext, analyser, timeDomainData, isRunning = false;
-        let pitchHistory = [], smoothedPitch = 0;
-        let silenceCount = 0;
-        const HOLD_THRESHOLD = 15; // 音が途切れた際、数フレーム分は直前のピッチを保持する
-        const MAX_HISTORY = 100, SMOOTHING = 0.04; 
+        let pitchHistory = [], smoothedPitch = 0, silenceCount = 0;
+        const HOLD_THRESHOLD = 15, MAX_HISTORY = 100, SMOOTHING = 0.04;
         
         const canvas = document.getElementById('pitch-canvas'), ctx = canvas.getContext('2d', { alpha: false });
         const needle = document.getElementById('needle'), vibratoMeter = document.getElementById('vibrato-meter'), inputMeter = document.getElementById('input-meter');
@@ -91,7 +87,6 @@
 
         function autoCorrelate(buffer, sampleRate) {
             let size = buffer.length, rms = getRMS(buffer);
-            // 無音判定の閾値を少し下げ、ロングトーン中の微細な減衰に対応
             if (rms < 0.005) return { pitch: -1, rms };
             
             let c = new Float32Array(size);
@@ -118,32 +113,27 @@
             analyser.getFloatTimeDomainData(timeDomainData);
             const res = autoCorrelate(timeDomainData, audioContext.sampleRate);
             
-            const inputLevel = Math.min(100, res.rms * 500);
-            inputMeter.style.width = inputLevel + "%";
-            document.getElementById('input-percent').textContent = Math.round(inputLevel) + "%";
+            inputMeter.style.width = Math.min(100, res.rms * 500) + "%";
+            document.getElementById('input-percent').textContent = Math.round(res.rms * 500) + "%";
 
             if (res.pitch > 40 && res.pitch < 2000) {
-                silenceCount = 0; // 音が出ているのでリセット
+                silenceCount = 0;
                 smoothedPitch = (SMOOTHING * res.pitch) + ((1.0 - SMOOTHING) * (smoothedPitch || res.pitch));
-                pitchHistory.push(res.pitch);
+                pitchHistory.push(smoothedPitch);
                 if (pitchHistory.length > MAX_HISTORY) pitchHistory.shift();
 
                 const midiNote = Math.round(12 * Math.log2(smoothedPitch / 440) + 69);
-                const targetFreq = 440 * Math.pow(2, (midiNote - 69) / 12);
-                const cents = 1200 * Math.log2(smoothedPitch / targetFreq);
+                const cents = 1200 * Math.log2(smoothedPitch / (440 * Math.pow(2, (midiNote - 69) / 12)));
                 
                 const vibratoDepth = Math.max(...pitchHistory) - Math.min(...pitchHistory);
-                const vibratoPercent = Math.min(100, (vibratoDepth / smoothedPitch) * 100 * 1.0);
-                
-                vibratoMeter.style.width = vibratoPercent + "%";
-                document.getElementById('vibrato-percent').textContent = Math.round(vibratoPercent) + "%";
+                const vPercent = Math.min(100, (vibratoDepth / smoothedPitch) * 100);
+                vibratoMeter.style.width = vPercent + "%";
+                document.getElementById('vibrato-percent').textContent = Math.round(vPercent) + "%";
 
                 needle.style.left = `${Math.max(0, Math.min(100, (cents + 50)))}%`;
-                const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-                document.getElementById('current-note').textContent = noteNames[midiNote % 12];
+                document.getElementById('current-note').textContent = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"][midiNote % 12];
                 document.getElementById('current-hz').textContent = smoothedPitch.toFixed(1) + " Hz";
             } else {
-                // 音が途切れた時、一定フレームまでは計測値をリセットせず保持する
                 silenceCount++;
                 if (silenceCount > HOLD_THRESHOLD) {
                     document.getElementById('current-note').textContent = "--";
@@ -152,13 +142,16 @@
             }
 
             ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 1;
-            for(let i=0; i<=10; i++) { ctx.beginPath(); ctx.moveTo(canvas.width*(i/10), 0); ctx.lineTo(canvas.width*(i/10), canvas.height); ctx.stroke(); }
             
+            // 縦方向のズーム表示（現在のピッチを中心として±10%の範囲をフル表示）
+            const range = smoothedPitch * 0.1;
+            const yMin = smoothedPitch - range;
+            const yMax = smoothedPitch + range;
+
             ctx.strokeStyle = '#f472b6'; ctx.lineWidth = 3; ctx.beginPath();
             pitchHistory.forEach((p, i) => {
                 const x = (i / MAX_HISTORY) * canvas.width;
-                const y = canvas.height - ((Math.log2(p/40) / Math.log2(2500/40)) * canvas.height);
+                const y = canvas.height - ((p - yMin) / (yMax - yMin)) * canvas.height;
                 i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
             });
             ctx.stroke();
