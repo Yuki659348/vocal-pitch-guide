@@ -129,4 +129,27 @@
                 changeEl.textContent = Math.abs(diff) > 20 ? (diff > 0 ? "しゃくり" : "フォール") : "Normal";
                 lastPitch = smoothedPitch;
 
-                const midi = Math.round(12 * Math.log2(smoothedPitch
+                const midi = Math.round(12 * Math.log2(smoothedPitch / 440) + 69);
+                const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+                const octave = Math.floor(midi / 12) - 1;
+                
+                currentNoteEl.textContent = noteNames[midi % 12];
+                currentOctaveEl.textContent = "OCTAVE: " + octave;
+                currentNoteEl.className = "font-digital text-6xl md:text-7xl font-black text-[#00e5ff]";
+                currentHzEl.textContent = smoothedPitch.toFixed(1) + " Hz";
+                tuningNeedle.style.left = Math.max(0, Math.min(100, 50 + (1200 * Math.log2(smoothedPitch / (440 * Math.pow(2, (midi - 69) / 12)))))) + "%";
+
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.beginPath(); ctx.strokeStyle = "#00e5ff"; ctx.lineWidth = 2;
+                pitchHistory.forEach((p, i) => {
+                    let x = (i / 100) * canvas.width;
+                    let y = canvas.height - ((p - 100) / 800) * canvas.height;
+                    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+                });
+                ctx.stroke();
+            }
+            requestAnimationFrame(updateLoop);
+        }
+    </script>
+</body>
+</html>
