@@ -52,8 +52,9 @@
         <div class="bg-gray-900/40 px-4 py-3 rounded-xl border border-gray-800 flex flex-col gap-3">
             <div class="flex items-center gap-4">
                 <span class="text-[10px] text-gray-500 uppercase font-bold tracking-widest w-12">Vert (Zoom)</span>
-                <input type="range" id="v-zoom" min="1" max="20" value="10" class="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer">
-                <span id="v-val" class="text-[10px] w-8 text-right font-digital text-cyan-400">10%</span>
+                <!-- ズーム倍率の初期値を下げ、範囲を広げてより全体が見えるように調整 -->
+                <input type="range" id="v-zoom" min="5" max="50" value="25" class="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+                <span id="v-val" class="text-[10px] w-8 text-right font-digital text-cyan-400">25%</span>
             </div>
             <div class="flex items-center gap-4">
                 <span class="text-[10px] text-gray-500 uppercase font-bold tracking-widest w-12">Horiz (Time)</span>
@@ -158,12 +159,14 @@
 
             ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
             
+            // ズーム値を調整して初期表示を小さく（広範囲をカバー）する
             const vZoom = vSlider.value / 100;
             const hZoom = hSlider.value;
             document.getElementById('v-val').textContent = vSlider.value + "%";
             document.getElementById('h-val').textContent = hZoom;
 
-            const range = smoothedPitch * vZoom;
+            // 中心ピッチに対し、表示範囲を広げる計算
+            const range = smoothedPitch * (vZoom * 2); 
             const yMin = smoothedPitch - range;
             const yMax = smoothedPitch + range;
 
@@ -172,7 +175,6 @@
             ctx.lineJoin = 'round';
             ctx.beginPath();
 
-            // 横方向の表示数（hZoom）を制限
             const startIdx = Math.max(0, pitchHistory.length - hZoom);
             const visibleHistory = pitchHistory.slice(startIdx);
 
