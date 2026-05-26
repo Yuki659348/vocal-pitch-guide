@@ -111,7 +111,8 @@
             let size = buffer.length, rms = 0;
             for (let i = 0; i < size; i++) rms += buffer[i] * buffer[i];
             rms = Math.sqrt(rms / size);
-            if (rms < 0.01) return -1;
+            // 感度向上：rmsの閾値を0.01から0.005へ引き下げ
+            if (rms < 0.005) return -1;
             let c = new Float32Array(size);
             for (let i = 0; i < size; i++) for (let j = 0; j < size - i; j++) c[i] += buffer[j] * buffer[j + i];
             let bestT = -1, threshold = 0.2 * c[0];
@@ -147,7 +148,8 @@
             const displayH = canvas.height / window.devicePixelRatio;
 
             if (pitch > 50 && pitch < 2000) {
-                smoothedPitch = (pitch * 0.1) + (smoothedPitch * 0.9);
+                // 平滑化強化：重み付けを 0.05 (よりゆっくり) に変更
+                smoothedPitch = (pitch * 0.05) + (smoothedPitch * 0.95);
                 pitchHistory.push(smoothedPitch); if (pitchHistory.length > 400) pitchHistory.shift();
                 
                 vibratoBuffer.push(smoothedPitch); if (vibratoBuffer.length > 30) vibratoBuffer.shift();
@@ -167,7 +169,6 @@
 
                 ctx.clearRect(0, 0, displayW, displayH);
                 
-                // グリッド線の描画
                 ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
                 ctx.lineWidth = 1;
                 for (let i = 0; i <= 8; i++) {
@@ -175,7 +176,6 @@
                     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(displayW, y); ctx.stroke();
                 }
 
-                // ピッチ履歴の描画（左から右へ流れる）
                 ctx.beginPath();
                 ctx.strokeStyle = "#00e5ff";
                 ctx.lineWidth = 4;
@@ -187,7 +187,6 @@
                 });
                 ctx.stroke();
 
-                // 現在位置の強調
                 const lastIdx = pitchHistory.length - 1;
                 const lastX = (lastIdx / 400) * displayW;
                 const lastY = displayH - ((pitchHistory[lastIdx] - min) / (max - min)) * displayH;
