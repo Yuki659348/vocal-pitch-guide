@@ -30,7 +30,7 @@
                 </div>
             </div>
             <div class="mt-4 w-full h-8 bg-black rounded-lg border border-gray-700 relative flex items-center">
-                <div id="needle" class="absolute w-0.5 h-8 bg-cyan-400 transition-all duration-75 ease-out z-20 left-1/2"></div>
+                <div id="needle" class="absolute w-0.5 h-8 bg-cyan-400 transition-all duration-300 ease-out z-20 left-1/2"></div>
             </div>
         </div>
         
@@ -50,11 +50,10 @@
 
     <script>
         let audioContext, analyser, timeDomainData, isRunning = false;
-        let frameCounter = 0;
         let pitchHistory = [];
         let smoothedPitch = 0;
         const MAX_HISTORY = 100;
-        const SMOOTHING = 0.16;
+        const SMOOTHING = 0.08; // ピッチ表示をゆっくり動かすための平滑化係数
         
         const canvas = document.getElementById('pitch-canvas');
         const ctx = canvas.getContext('2d', { alpha: false });
@@ -98,44 +97,41 @@
 
         function draw() {
             if (!isRunning) return;
-            frameCounter++;
             
-            if (frameCounter % 2 === 0) {
-                analyser.getFloatTimeDomainData(timeDomainData);
-                const pitch = autoCorrelate(timeDomainData, audioContext.sampleRate);
+            analyser.getFloatTimeDomainData(timeDomainData);
+            const pitch = autoCorrelate(timeDomainData, audioContext.sampleRate);
+            
+            if (pitch > 40 && pitch < 2000) {
+                // ピッチ表示用には強い平滑化を適用
+                smoothedPitch = (SMOOTHING * pitch) + ((1.0 - SMOOTHING) * (smoothedPitch || pitch));
                 
-                if (pitch > 40 && pitch < 2000) {
-                    smoothedPitch = (SMOOTHING * pitch) + ((1.0 - SMOOTHING) * (smoothedPitch || pitch));
-                    pitchHistory.push(smoothedPitch);
-                    if (pitchHistory.length > MAX_HISTORY) pitchHistory.shift();
+                // 軌跡用には生に近いデータを追従させる（高速追従）
+                pitchHistory.push(pitch);
+                if (pitchHistory.length > MAX_HISTORY) pitchHistory.shift();
 
-                    const midiNote = Math.round(12 * Math.log2(smoothedPitch / 440) + 69);
-                    const targetFreq = 440 * Math.pow(2, (midiNote - 69) / 12);
-                    const cents = 1200 * Math.log2(smoothedPitch / targetFreq);
-                    
-                    needle.style.left = `${Math.max(0, Math.min(100, (cents + 50)))}%`;
-                    
-                    const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-                    document.getElementById('current-note').textContent = noteNames[midiNote % 12];
-                    document.getElementById('current-hz').textContent = smoothedPitch.toFixed(1) + " Hz";
-                }
+                const midiNote = Math.round(12 * Math.log2(smoothedPitch / 440) + 69);
+                const targetFreq = 440 * Math.pow(2, (midiNote - 69) / 12);
+                const cents = 1200 * Math.log2(smoothedPitch / targetFreq);
+                
+                needle.style.left = `${Math.max(0, Math.min(100, (cents + 50)))}%`;
+                
+                const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+                document.getElementById('current-note').textContent = noteNames[midiNote % 12];
+                document.getElementById('current-hz').textContent = smoothedPitch.toFixed(1) + " Hz";
             }
 
             ctx.fillStyle = '#05070a';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             
-            // グリッドの描画
+            // グリッド
             ctx.strokeStyle = '#1e293b';
             ctx.lineWidth = 1;
-            
-            // 縦線（時間）
             for(let i = 0; i <= 10; i++) {
                 ctx.beginPath();
                 ctx.moveTo(canvas.width * (i/10), 0);
                 ctx.lineTo(canvas.width * (i/10), canvas.height);
                 ctx.stroke();
             }
-            // 横線（音程）
             for(let i = 0; i <= 8; i++) {
                 ctx.beginPath();
                 ctx.moveTo(0, canvas.height * (i/8));
@@ -143,13 +139,12 @@
                 ctx.stroke();
             }
 
-            // ピッチ軌跡の描画
+            // 高速追従する軌跡
             ctx.strokeStyle = '#f472b6';
             ctx.lineWidth = 3;
             ctx.beginPath();
             const h = canvas.height;
             const w = canvas.width;
-            
             pitchHistory.forEach((p, i) => {
                 const x = (i / MAX_HISTORY) * w;
                 const y = h - ((Math.log2(p/60) / Math.log2(1500/60)) * h);
