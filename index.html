@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <!-- モバイルSafari等で画面のピンチ縮小・拡大を禁止し、ネイティブアプリらしい操作感を実現するViewport設定 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>VOICE PITCH GUIDE - Realtime Vocal Tuner</title>
+    
+    <!-- PWA（プログレッシブウェブアプリ）用のマニフェストと各種メタタグの設定 -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="PitchGuide">
+    <!-- iOSホーム画面追加用のアイコン（プレースホルダー画像） -->
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3231/3231365.png">
+    
+    <!-- スタイリング用の高機能CSSフレームワーク Tailwind CSS の読み込み -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 視覚デザイン用のフォント（Google Fonts：デジタル数字向けOrbitron、日本語用Noto Sans JPなど） -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@500;700&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+    
+    <!-- マイクや再生ボタンなどのUIアイコン用のFont Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    
+    <style>
+        body {
+            font-family: 'Rajdhani', 'Noto Sans JP', sans-serif;
+            background-color: #0b0f19;
+            color: #e2e8f0;
+            overflow-x: hidden;
+            /* iPhone 13/14/15等のセーフエリア（ノッチ・底面バーなど）を考慮した余白調整 */
+            padding-top: env(safe-area-inset-top, 16px);
+            padding-bottom: env(safe-area-inset-bottom, 16px);
+        }
+        .font-digital {
+            font-family: 'Orbitron', sans-serif;
+        }
+        /* サイバー感・フューチャー感を演出するためのネオン発光風シャドウ設定 */
+        .neon-border-pink {
+            box-shadow: 0 0 15px rgba(255, 0, 127, 0.4);
+            border-color: #ff007f;
+        }
+        .neon-border-blue {
+            box-shadow: 0 0 15px rgba(0, 229, 255, 0.4);
+            border-color: #00e5ff;
+        }
+        .neon-border-green {
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.4);
+            border-color: #10b981;
+        }
+        .neon-text-pink {
+            text-shadow: 0 0 10px rgba(255, 0, 127, 0.8);
+            color: #ff007f;
+        }
+        .neon-text-blue {
+            text-shadow: 0 0 10px rgba(0, 229, 255, 0.8);
+            color: #00e5ff;
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #111827;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #1f2937;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between p-4 md:p-6 select-none">
+
+    <!-- ヘッダーエリア / 録音ステータス -->
+    <header class="w-full max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4 bg-gray-900/60 border border-gray-800 p-4 rounded-xl backdrop-blur">
+        <div class="flex items-center gap-3">
+            <!-- 動作中に点滅するインジケータードット -->
+            <div id="recording-pulse" class="w-3 h-3 rounded-full bg-gray-600"></div>
+            <div>
+                <h1 class="text-xl md:text-2xl font-bold tracking-wider text-white flex items-center gap-2">
+                    <span class="text-transparent bg-clip-text bg-gradient-to-r from-[#00e5ff] to-[#ff007f] font-digital">VOICE PITCH GUIDE</span>
+                    <span class="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded uppercase font-digital">PWA</span>
+                </h1>
+                <p class="text-xs text-gray-500">リアルタイム・ボーカル・ピッチ・トラッカー</p>
+            </div>
+        </div>
+
+        <!-- リアルタイム判定の評価（PERFECT / GREAT 等）表示用バッジ -->
+        <div class="flex items-center gap-4 bg-black/40 px-4 py-2 rounded-lg border border-gray-800 min-w-[220px] justify-center">
+            <span class="text-xs text-gray-400 uppercase tracking-widest">Accuracy</span>
+            <div id="accuracy-badge" class="font-digital text-lg font-bold uppercase transition-all duration-150 px-3 py-0.5 rounded bg-gray-800 text-gray-400">
+                STANDBY
+            </div>
+        </div>
+    </header>
+
+    <!-- メインレイアウトコンテナ -->
+    <main class="w-full max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-4 gap-6 my-6 flex-grow">
+        
+        <!-- 左パネル：リアルタイム測定器 ＆ 各種設定・コントロール -->
+        <section class="lg:col-span-1 flex flex-col gap-6">
+            
+            <!-- ピッチ（周波数）およびズレのメーター -->
+            <div class="bg-gray-900/60 border border-gray-800 rounded-xl p-5 backdrop-blur flex flex-col items-center justify-between flex-grow min-h-[320px]">
+                <h2 class="text-sm font-bold text-gray-400 uppercase tracking-wider self-start flex items-center gap-2">
+                    <i class="fa-solid fa-microphone-lines text-[#00e5ff]"></i> Pitch Analyzer
+                </h2>
+                
+                <!-- 判定音名（ドレミ）の大文字表示 -->
+                <div class="text-center my-4">
+                    <div id="current-note" class="font-digital text-7xl font-black text-gray-600 transition-all duration-100">
+                        --
+                    </div>
+                    <!-- 測定された周波数 (ヘルツ) -->
+                    <div id="current-hz" class="text-sm text-gray-500 font-digital mt-1">
+                        0.00 Hz
+                    </div>
+                </div>
+
+                <!-- チューニングメーター（中央の「0」がジャストピッチ） -->
+                <div class="w-full px-2">
+                    <div class="flex justify-between text-xs text-gray-500 font-digital mb-1">
+                        <span>-50c (低い)</span>
+                        <span class="text-white">0</span>
+                        <span>+50c (高い)</span>
+                    </div>
+                    <div class="w-full h-4 bg-black/60 rounded-full overflow-hidden relative border border-gray-800">
+                        <!-- メーター中央ターゲットライン -->
+                        <div class="absolute left-1/2 top-0 bottom-0 w-0.5 bg-[#00e5ff]/60 z-10"></div>
+                        <!-- ±5セントの許容ゾーン背景ハイライト -->
+                        <div class="absolute left-[45%] right-[45%] top-0 bottom-0 bg-emerald-500/10 z-0"></div>
+                        <!-- 動く指針（ニードル） -->
+                        <div id="tuning-needle" class="absolute top-0 bottom-0 w-1.5 bg-gray-400 left-1/2 -translate-x-1/2 transition-all duration-75 shadow-lg"></div>
+                    </div>
+                    <!-- セント単位（半音の1/100）での精密ズレ表示 -->
+                    <div id="cents-label" class="text-center text-xs font-digital mt-2 text-gray-400">
+                        0 cents
+                    </div>
+                </div>
+            </div>
+
+            <!-- 音声接続設定 ＆ ガイド曲調整エリア -->
+            <div class="bg-gray-900/60 border border-gray-800 rounded-xl p-5 backdrop-blur flex flex-col gap-4">
+                <div>
+                    <h3 class="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                        <i class="fa-solid fa-microphone text-emerald-400"></i> マイク入力の接続
+                    </h3>
+                    <!-- マイクのトグル起動ボタン -->
+                    <button id="btn-toggle-mic" class="w-full bg-emerald-600 hover:bg-emerald-500 text-black font-bold py-2.5 px-4 rounded-lg flex items-center justify-center gap-2 transition duration-200 shadow-md active:scale-95">
+                        <i class="fa-solid fa-plug"></i> <span>マイクを有効化</span>
+                    </button>
+                </div>
+
+                <hr class="border-gray-800">
+
+                <div>
+                    <h3 class="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                        <i class="fa-solid fa-sliders text-[#ff007f]"></i> ガイドメロディ設定
+                    </h3>
+                    
+                    <!-- ガイド課題曲セレクトボックス -->
+                    <div class="mb-4">
+                        <label class="block text-xs text-gray-500 uppercase tracking-wider mb-1.5">Guide Track (ガイド曲)</label>
+                        <select id="song-select" class="w-full bg-black/60 border border-gray-800 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-[#00e5ff]">
+                            <option value="twinkle">Twinkle Twinkle Little Star (きらきら星)</option>
+                            <option value="scale">Major Scale Up & Down (ドレミ音階)</option>
+                            <option value="arpeggio">Major Arpeggio (アルペジオ)</option>
+                        </select>
+                    </div>
+
+                    <!-- 各種設定トグルスイッチ -->
+                    <div class="flex flex-col gap-3">
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-gray-400">ガイド音（シンセ）再生</span>
+                            <button id="toggle-synth" class="w-12 h-6 bg-emerald-600 rounded-full relative p-0.5 transition-colors duration-200">
+                                <div class="w-5 h-5 bg-white rounded-full shadow transform translate-x-6 transition-transform duration-200" id="synth-knob"></div>
+                            </button>
+                        </div>
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-gray-400">マイクの接続状況</span>
+                            <span id="mic-status-badge" class="text-xs font-bold text-red-500 uppercase flex items-center gap-1">
+                                <i class="fa-solid fa-circle text-[8px]"></i> 未接続
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 中央＆右パネル：楽譜タイムライン（スクロールキャンバス） -->
+        <section class="lg:col-span-3 bg-gray-900/60 border border-gray-800 rounded-xl p-4 backdrop-blur flex flex-col justify-between min-h-[450px]">
+            <div class="flex justify-between items-center mb-3">
+                <div class="flex items-center gap-3">
+                    <span class="text-xs bg-gray-800 text-[#00e5ff] px-2 py-1 rounded border border-[#00e5ff]/20 font-digital">
+                        白色: ガイド音符（目標）
+                    </span>
+                    <span class="text-xs bg-gray-800 text-[#ff007f] px-2 py-1 rounded border border-[#ff007f]/20 font-digital">
+                        ピンク色: あなたの歌声
+                    </span>
+                </div>
+                <div class="text-xs text-gray-500 font-digital" id="playback-timer">
+                    経過時間: 00:00.00
+                </div>
+            </div>
+
+            <!-- 横スクロールピッチ検出用キャンバス領域 -->
+            <div class="relative w-full flex-grow bg-black/80 rounded-lg overflow-hidden border border-gray-900" id="canvas-container">
+                <canvas id="pitch-canvas" class="absolute inset-0 w-full h-full"></canvas>
+                <!-- 現在の判定ライン（縦の細い青線） -->
+                <div class="absolute left-1/4 top-0 bottom-0 w-0.5 bg-[#00e5ff]/30 pointer-events-none z-10" id="current-timeline-bar"></div>
+                <div class="absolute left-1/4 top-2 -translate-x-1/2 text-[9px] font-digital px-1.5 py-0.5 bg-[#00e5ff] text-black rounded font-bold uppercase tracking-wider shadow z-10">
+                    SANG POINT (歌唱位置)
+                </div>
+            </div>
+
+            <!-- 操作トランスポートボタン -->
+            <div class="flex flex-wrap items-center justify-between gap-4 mt-4 pt-4 border-t border-gray-800/60">
+                <div class="flex items-center gap-3">
+                    <!-- ガイド再生 ＆ レコーディング練習スタート -->
+                    <button id="btn-play" class="bg-gradient-to-r from-[#00e5ff] to-blue-600 hover:from-[#00e5ff]/90 hover:to-blue-600/90 text-black font-bold px-6 py-2.5 rounded-lg flex items-center gap-2 transition duration-200 shadow-lg shadow-blue-500/20 active:scale-95">
+                        <i class="fa-solid fa-play"></i> 練習と録音をスタート
+                    </button>
+                    <!-- 停止ボタン -->
+                    <button id="btn-stop" class="bg-gray-800 hover:bg-gray-700 text-white font-bold px-4 py-2.5 rounded-lg flex items-center gap-2 transition duration-200 active:scale-95" disabled>
+                        <i class="fa-solid fa-stop"></i> 停止
+                    </button>
+                </div>
+
+                <div class="flex items-center gap-2 text-xs text-gray-500 font-digital">
+                    <span class="bg-gray-800 px-2 py-1 rounded text-gray-300">表示キー範囲: G3 - G5</span>
+                    <span class="text-gray-600">|</span>
+                    <span class="bg-gray-800 px-2 py-1 rounded text-gray-300">Tempo: 100 BPM</span>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- クイックインフォカード -->
+    <footer class="w-full max-w-7xl mx-auto bg-gray-950/80 border border-gray-900 rounded-xl p-4 text-center text-xs text-gray-500 leading-relaxed">
+        <p class="font-bold text-gray-400 mb-1">💡 クイックスタートガイド (How to Use):</p>
+        <p>1. まず「マイクを有効化」ボタンをクリックしてマイクへのアクセスを許可してください。歌うとリアルタイムに左のメーターが反応します。</p>
+        <p>2. ピッチを確認できたら、「練習と録音をスタート」ボタンを押してガイドメロディーに合わせながらトレーニングを開始しましょう！</p>
+    </footer>
+
+    <!-- インタラクティブロジック（Web Audio API とピッチ検出） -->
+    <script>
+        // PWA用のService Worker（サービスワーカー）の登録処理
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js')
+                    .then(reg => console.log('Service Worker 登録完了!', reg))
+                    .catch(err => console.warn('Service Worker 登録失敗.', err));
+            });
+        }
+
+        // --- 1. サウンドデータ ＆ ガイド曲設計（MIDI規格準拠：60=C4） ---
+        const songs = {
+            twinkle: [
+                { note: 60, start: 0.0, duration: 0.8 }, { note: 60, start: 1.0, duration: 0.8 },
+                { note: 67, start: 2.0, duration: 0.8 }, { note: 67, start: 3.0, duration: 0.8 },
+                { note: 69, start: 4.0, duration: 0.8 }, { note: 69, start: 5.0, duration: 0.8 },
+                { note: 67, start: 6.0, duration: 1.8 },
+                
+                { note: 65, start: 8.0, duration: 0.8 }, { note: 65, start: 9.0, duration: 0.8 },
+                { note: 64, start: 10.0, duration: 0.8 }, { note: 64, start: 11.0, duration: 0.8 },
+                { note: 62, start: 12.0, duration: 0.8 }, { note: 62, start: 13.0, duration: 0.8 },
+                { note: 60, start: 14.0, duration: 1.8 },
+
+                { note: 67, start: 16.0, duration: 0.8 }, { note: 67, start: 17.0, duration: 0.8 },
+                { note: 65, start: 18.0, duration: 0.8 }, { note: 65, start: 19.0, duration: 0.8 },
+                { note: 64, start: 20.0, duration: 0.8 }, { note: 64, start: 21.0, duration: 0.8 },
+                { note: 62, start: 22.0, duration: 1.8 }
+            ],
+            scale: [
+                { note: 60, start: 0.0, duration: 0.8 }, { note: 62, start: 1.0, duration: 0.8 },
+                { note: 64, start: 2.0, duration: 0.8 }, { note: 65, start: 3.0, duration: 0.8 },
+                { note: 67, start: 4.0, duration: 0.8 }, { note: 69, start: 5.0, duration: 0.8 },
+                { note: 71, start: 6.0, duration: 0.8 }, { note: 72, start: 7.0, duration: 1.8 }
+            ],
+            arpeggio: [
+                { note: 60, start: 0.0, duration: 0.8 }, { note: 64, start: 1.0, duration: 0.8 },
+                { note: 67, start: 2.0, duration: 0.8 }, { note: 72, start: 3.0, duration: 1.8 }
+            ]
+        };
+
+        const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+
+        // --- 2. 各種ステート保持用変数 ---
+        let audioContext = null;
+        let analyser = null;
+        let micStream = null;
+        let scriptProcessor = null;
+        let bufferLength = 2048;
+        let sampleRate = 44100;
+        let audioData = new Float32Array(bufferLength);
+        
+        let isMicEnabled = false;
+        let isPlaying = false;
+        let playStartTime = 0;
+        
+        // EMAフィルター（平滑化：数値を滑らかにして針のブレを抑える）
+        let smoothedPitch = null;
+        let smoothedCents = 0;
+        const SMOOTHING_FACTOR = 0.16; // 0.01（追従最遅/超安定）〜1.0（生データ）。0.16は追従の自然さとブレ補正のバランスが最も良い値です。
+        
+        // 無音判定時のホールド機構（発声終了や子音時のピッチ一瞬ブレ消去用）
+        let silenceCounter = 0;
+        const SILENCE_HOLD_FRAMES = 6; // 約280ミリ秒の視覚的バッファスペース
+
+        let synthEnabled = true;
+        let synthOsc = null;
+        let synthGain = null;
+        let activeSynthNote = null;
+
+        // タイムライン描画用の歴史バッファ
+        let userVoiceHistory = [];
+
+        // DOMの取得
+        const canvas = document.getElementById('pitch-canvas');
+        const ctx = canvas.getContext('2d');
+        const btnPlay = document.getElementById('btn-play');
+        const btnStop = document.getElementById('btn-stop');
+        const btnToggleMic = document.getElementById('btn-toggle-mic');
+        const songSelect = document.getElementById('song-select');
+        const toggleSynth = document.getElementById('toggle-synth');
+        const synthKnob = document.getElementById('synth-knob');
+        const currentNoteEl = document.getElementById('current-note');
+        const currentHzEl = document.getElementById('current-hz');
+        const tuningNeedle = document.getElementById('tuning-needle');
+        const centsLabel = document.getElementById('cents-label');
+        const accuracyBadge = document.getElementById('accuracy-badge');
+        const playbackTimer = document.getElementById('playback-timer');
+        const micStatusBadge = document.getElementById('mic-status-badge');
+        const recordingPulse = document.getElementById('recording-pulse');
+
+        // 表示するキー範囲：MIDIノートC3(48) 〜 C6(84)
+        const MIDI_MIN = 48;
+        const MIDI_MAX = 84;
+
+        // キャンバスサイズを親コンテナに合わせてリサイズする関数
+        function resizeCanvas() {
+            const container = document.getElementById('canvas-container');
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+            drawStaticBackground();
+        }
+        window.addEventListener('resize', resizeCanvas);
+
+        // --- 3. ピッチ検出コアアルゴリズム（自己相関関数：Autocorrelation） ---
+        function autoCorrelate(buffer, sampleRate) {
+            let size = buffer.length;
+            let rms = 0;
+            // 振幅の二乗平均平方根（音量レベル）を算出して最小閾値をクリアしているか評価
+            for (let i = 0; i < size; i++) {
+                let val = buffer[i];
+                rms += val * val;
+            }
+            rms = Math.sqrt(rms / size);
+            // 音量が小さすぎる（無発声・バックグラウンドノイズのみ）場合はピッチ検出をスキップ
+            if (rms < 0.012) return -1;
+
+            // クリップ波形の端を取り除く簡易ゲートフィルター
+            let r1 = 0, r2 = size - 1, thres = 0.2;
+            for (let i = 0; i < size / 2; i++) {
+                if (Math.abs(buffer[i]) < thres) { r1 = i; break; }
+            }
+            for (let i = size - 1; i >= size / 2; i--) {
+                if (Math.abs(buffer[i]) < thres) { r2 = i; break; }
+            }
+
+            buffer = buffer.slice(r1, r2);
+            size = buffer.length;
+
+            // 相関演算
+            let c = new Float32Array(size);
+            for (let i = 0; i < size; i++) {
+                for (let j = 0; j < size - i; j++) {
+                    c[i] = c[i] + buffer[j] * buffer[j + i];
+                }
+            }
+
+            let d = 0; 
+            while (c[d] > c[d + 1]) d++;
+            
+            let maxval = -1, maxpos = -1;
+            for (let i = d; i < size; i++) {
+                if (c[i] > maxval) {
+                    maxval = c[i];
+                    maxpos = i;
+                }
+            }
+            let T0 = maxpos;
+
+            // 放物線補間による超精密な周波数推定
+            let x1 = c[T0 - 1], x2 = c[T0], x3 = c[T0 + 1];
+            let a = (x1 + x3 - 2 * x2) / 2;
+            let b = (x3 - x1) / 2;
+            if (a) T0 = T0 - b / (2 * a);
+
+            return sampleRate / T0;
+        }
+
+        // 周波数からMIDIノート番号を算出
+        function noteFromPitch(frequency) {
+            let noteNum = 12 * (Math.log(frequency / 440) / Math.log(2));
+            return Math.round(noteNum) + 69;
+        }
+
+        // MIDIノート番号から理論周波数を逆算
+        function frequencyFromNoteNumber(note) {
+            return 440 * Math.pow(2, (note - 69) / 12);
+        }
+
+        // 目標音高から何セント離れているかを計算
+        function centsOffFromPitch(frequency, note) {
+            return Math.floor(1200 * Math.log(frequency / frequencyFromNoteNumber(note)) / Math.log(2));
+        }
+
+        // MIDI番号を音名表記（例：「C4」）に変換
+        function getNoteName(noteNumber) {
+            return noteStrings[noteNumber % 12] + Math.floor(noteNumber / 12 - 1);
+        }
+
+        // 判定精度に合わせたバッジ表示更新
+        function updateAccuracyUI(cents) {
+            let absCents = Math.abs(cents);
+            if (cents === null) {
+                accuracyBadge.textContent = "STANDBY";
+                accuracyBadge.className = "font-digital text-lg font-bold uppercase px-3 py-0.5 rounded bg-gray-800 text-gray-400";
+                return;
+            }
+            if (absCents <= 12) {
+                accuracyBadge.textContent = "PERFECT";
+                accuracyBadge.className = "font-digital text-lg font-bold uppercase px-3 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
+            } else if (absCents <= 25) {
+                accuracyBadge.textContent = "GREAT";
+                accuracyBadge.className = "font-digital text-lg font-bold uppercase px-3 py-0.5 rounded bg-cyan-500/20 text-cyan-400 border border-cyan-500/30";
+            } else if (absCents <= 45) {
+                accuracyBadge.textContent = "GOOD";
+                accuracyBadge.className = "font-digital text-lg font-bold uppercase px-3 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30";
+            } else {
+                accuracyBadge.textContent = cents > 0 ? "TOO HIGH" : "TOO LOW";
+                accuracyBadge.className = "font-digital text-lg font-bold uppercase px-3 py-0.5 rounded bg-rose-500/20 text-rose-400 border border-rose-500/30";
+            }
+        }
+
+        // --- 4. サウンドジェネレーター（Web Audio 合成器） ---
+        function startSynth(frequency) {
+            if (!audioContext || !synthEnabled) return;
+            if (synthOsc) {
+                synthOsc.frequency.setValueAtTime(frequency, audioContext.currentTime);
+                return;
+            }
+            synthOsc = audioContext.createOscillator();
+            synthGain = audioContext.createGain();
+            synthOsc.type = 'triangle'; // 三角波：優しく聞き取りやすい音質
+            synthOsc.frequency.setValueAtTime(frequency, audioContext.currentTime);
+            synthGain.gain.setValueAtTime(0.12, audioContext.currentTime); // 適切なBGM音量レベル
+            synthOsc.connect(synthGain);
+            synthGain.connect(audioContext.destination);
+            synthOsc.start();
+        }
+
+        // シンセの完全停止
+        function stopSynth() {
+            if (synthOsc) {
+                try { synthOsc.stop(); } catch(e) {}
+                synthOsc.disconnect();
+                synthGain.disconnect();
+                synthOsc = null;
+                synthGain = null;
+            }
+            activeSynthNote = null;
+        }
+
+        // シンセ音再生のトグル切替処理
+        toggleSynth.addEventListener('click', () => {
+            synthEnabled = !synthEnabled;
+            if (synthEnabled) {
+                toggleSynth.classList.remove('bg-gray-800');
+                toggleSynth.classList.add('bg-emerald-600');
+                synthKnob.classList.remove('translate-x-0');
+                synthKnob.classList.add('translate-x-6');
+            } else {
+                toggleSynth.classList.remove('bg-emerald-600');
+                toggleSynth.classList.add('bg-gray-800');
+                synthKnob.classList.remove('translate-x-6');
+                synthKnob.classList.add('translate-x-0');
+                stopSynth();
+            }
+        });
+
+        // --- 5. オーディオエンジン・マイク接続初期化 ---
+        async function initAudio() {
+            if (audioContext) return true;
+            try {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                sampleRate = audioContext.sampleRate;
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = bufferLength;
+                
+                // 遅延を減らし、かつエフェクトのない素の声をキャプチャするためにノイズ補正等をオフで取得
+                micStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: false,
+                        noiseSuppression: false,
+                        autoGainControl: false
+                    }
+                });
+                
+                const micSource = audioContext.createMediaStreamSource(micStream);
+                micSource.connect(analyser);
+
+                scriptProcessor = audioContext.createScriptProcessor(bufferLength, 1, 1);
+                analyser.connect(scriptProcessor);
+                scriptProcessor.connect(audioContext.destination);
+
+                // マイク入力処理のループ
+                scriptProcessor.onaudioprocess = function() {
+                    if (!isMicEnabled) return;
+                    analyser.getFloatTimeDomainData(audioData); // 標準メソッドを使用してオーディオサンプルを取得
+                    let pitch = autoCorrelate(audioData, sampleRate);
+                    
+                    if (pitch !== -1 && pitch > 80 && pitch < 1200) {
+                        silenceCounter = 0; // 発声している間はカウンターリセット
+                        
+                        // EMA平滑化フィルター（ピッチのチラつきを防止）
+                        if (smoothedPitch === null) {
+                            smoothedPitch = pitch;
+                        } else {
+                            smoothedPitch = (SMOOTHING_FACTOR * pitch) + ((1 - SMOOTHING_FACTOR) * smoothedPitch);
+                        }
+
+                        let midiNote = noteFromPitch(smoothedPitch);
+                        let noteName = getNoteName(midiNote);
+                        let cents = centsOffFromPitch(smoothedPitch, midiNote);
+                        
+                        // Centsメーターのズレ角もマイルドに補正
+                        smoothedCents = (SMOOTHING_FACTOR * cents) + ((1 - SMOOTHING_FACTOR) * smoothedCents);
+
+                        // 練習再生中の場合のみ、ユーザーの声のドット位置データを保存
+                        if (isPlaying) {
+                            let elapsed = (audioContext.currentTime - playStartTime);
+                            userVoiceHistory.push({
+                                time: elapsed,
+                                midi: midiNote,
+                                pitch: smoothedPitch,
+                                cents: smoothedCents
+                            });
+                        }
+
+                        // 各UI数値をなめらかに更新
+                        currentNoteEl.textContent = noteName;
+                        currentNoteEl.className = "font-digital text-7xl font-black text-[#ff007f] neon-text-pink";
+                        currentHzEl.textContent = `${smoothedPitch.toFixed(2)} Hz`;
+
+                        let percent = 50 + smoothedCents;
+                        percent = Math.max(5, Math.min(95, percent));
+                        tuningNeedle.style.left = `${percent}%`;
+                        tuningNeedle.className = "absolute top-0 bottom-0 w-1.5 bg-[#ff007f] left-1/2 -translate-x-1/2 transition-all duration-75 shadow-lg neon-border-pink";
+                        centsLabel.textContent = `${smoothedCents > 0 ? '+' : ''}${Math.round(smoothedCents)} cents`;
+                        updateAccuracyUI(smoothedCents);
+                    } else {
+                        // 一瞬の無音を許容するホールド処理
+                        silenceCounter++;
+                        if (silenceCounter < SILENCE_HOLD_FRAMES && smoothedPitch !== null) {
+                            return; // 表示をキープ
+                        }
+                        
+                        // 完全な無音時のクリーンアップ処理
+                        smoothedPitch = null;
+                        smoothedCents = 0;
+                        currentNoteEl.textContent = "--";
+                        currentNoteEl.className = "font-digital text-7xl font-black text-gray-600 transition-all duration-100";
+                        tuningNeedle.style.left = `50%`;
+                        tuningNeedle.className = "absolute top-0 bottom-0 w-1.5 bg-gray-400 left-1/2 -translate-x-1/2 transition-all duration-75 shadow-lg";
+                        updateAccuracyUI(null);
+                    }
+                };
+
+                // UI接続完了のフィードバック
+                micStatusBadge.textContent = "CONNECTED (接続中)";
+                micStatusBadge.className = "text-xs font-bold text-emerald-500 uppercase flex items-center gap-1";
+                isMicEnabled = true;
+                updateMicToggleButton();
+                return true;
+            } catch (err) {
+                console.error("マイクデバイスの取得に失敗しました:", err);
+                alert("マイクデバイスへのアクセスができませんでした。iOSのSafari設定などでマイクの使用が許可されているかご確認ください。");
+                isMicEnabled = false;
+                updateMicToggleButton();
+                return false;
+            }
+        }
+
+        // マイク接続ボタンのハンドラー
+        btnToggleMic.addEventListener('click', async () => {
+            if (!isMicEnabled) {
+                await initAudio();
+            } else {
+                isMicEnabled = false;
+                if (micStream) {
+                    micStream.getTracks().forEach(track => track.stop());
+                    micStream = null;
+                }
+                micStatusBadge.textContent = "DISCONNECTED (未接続)";
+                micStatusBadge.className = "text-xs font-bold text-red-500 uppercase flex items-center gap-1";
+                updateMicToggleButton();
+                smoothedPitch = null;
+                smoothedCents = 0;
+                currentNoteEl.textContent = "--";
+                currentNoteEl.className = "font-digital text-7xl font-black text-gray-600";
+                tuningNeedle.style.left = `50%`;
+                updateAccuracyUI(null);
+            }
+        });
+
+        function updateMicToggleButton() {
+            if (isMicEnabled) {
+                btnToggleMic.className = "w-full bg-red-600 hover:bg-red-500 text-white font-bold py-2.5 px-4 rounded-lg flex items-center justify-center gap-2 transition duration-200";
+                btnToggleMic.innerHTML = `<i class="fa-solid fa-microphone-slash"></i> <span>マイク接続を切断</span>`;
+            } else {
+                btnToggleMic.className = "w-full bg-emerald-600 hover:bg-emerald-500 text-black font-bold py-2.5 px-4 rounded-lg flex items-center justify-center gap-2 transition duration-200";
+                btnToggleMic.innerHTML = `<i class="fa-solid fa-microphone"></i> <span>マイクを有効化</span>`;
+            }
+        }
+
+        // Y軸（音高）マッピング関数の設計
+        const notesRange = MIDI_MAX - MIDI_MIN;
+        const pitchToY = (note) => {
+            const ratio = (note - MIDI_MIN) / notesRange;
+            return canvas.height - (ratio * canvas.height * 0.8 + canvas.height * 0.1);
+        };
+
+        // 静的な楽譜グリッド線を描画する関数
+        function drawStaticBackground() {
+            ctx.fillStyle = '#090d16';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.strokeStyle = '#1e293b';
+            ctx.lineWidth = 1;
+            ctx.font = '10px Orbitron';
+            for (let midi = MIDI_MIN; midi <= MIDI_MAX; midi++) {
+                // ド(C)、ファ(F)、ソ(G)のキーの場所に分かりやすくラインを引く
+                if (midi % 12 === 0 || midi % 12 === 5 || midi % 12 === 7) {
+                    const y = pitchToY(midi);
+                    ctx.beginPath();
+                    ctx.moveTo(0, y);
+                    ctx.lineTo(canvas.width, y);
+                    ctx.stroke();
+                    ctx.fillStyle = '#475569';
+                    ctx.fillText(getNoteName(midi), 10, y - 4);
+                }
+            }
+        }
+
+        // --- 6. タイムラインキャンバス更新のループ処理 ---
+        function renderTimeline() {
+            const selectedSongKey = songSelect.value;
+            const targetMelody = songs[selectedSongKey];
+            if (!isPlaying) {
+                drawStaticBackground();
+                requestAnimationFrame(renderTimeline);
+                return;
+            }
+            const elapsed = audioContext.currentTime - playStartTime;
+            const maxDuration = targetMelody[targetMelody.length - 1].start + targetMelody[targetMelody.length - 1].duration + 1.5;
+            
+            // ガイドメロディの終端に達したら再生を停止
+            if (elapsed > maxDuration) {
+                stopPlaying();
+                requestAnimationFrame(renderTimeline);
+                return;
+            }
+
+            // タイマーラベルの更新
+            const m = Math.floor(elapsed / 60).toString().padStart(2, '0');
+            const s = Math.floor(elapsed % 60).toString().padStart(2, '0');
+            const ms = Math.floor((elapsed % 1) * 100).toString().padStart(2, '0');
+            playbackTimer.textContent = `経過時間: ${m}:${s}.${ms}`;
+
+            ctx.fillStyle = '#090d16';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 音符をX軸（時間軸）にマッピング（現在地は左から1/4位置）
+            const timeToX = (timeSec) => {
+                const scaleX = 120; // 1秒 = 120ピクセル換算
+                const centerOffset = canvas.width / 4;
+                return centerOffset + (timeSec - elapsed) * scaleX;
+            };
+
+            // グリッド線の再描画
+            ctx.strokeStyle = '#1e293b';
+            ctx.lineWidth = 1;
+            ctx.font = '10px Orbitron';
+            for (let midi = MIDI_MIN; midi <= MIDI_MAX; midi++) {
+                if (midi % 12 === 0 || midi % 12 === 5 || midi % 12 === 7) {
+                    const y = pitchToY(midi);
+                    ctx.strokeStyle = '#1e293b';
+                    ctx.beginPath();
+                    ctx.moveTo(0, y);
+                    ctx.lineTo(canvas.width, y);
+                    ctx.stroke();
+                    ctx.fillStyle = '#475569';
+                    ctx.fillText(getNoteName(midi), 10, y - 4);
+                }
+            }
+
+            // 現在地ラインに触れている目標音符をトラッキング
+            let currentActiveNote = null;
+            targetMelody.forEach(block => {
+                const x = timeToX(block.start);
+                const w = block.duration * 120;
+                const y = pitchToY(block.note) - 10;
+                const h = 20;
+
+                // 再生中のアクティブな音符を光らせる
+                if (elapsed >= block.start && elapsed <= (block.start + block.duration)) {
+                    ctx.fillStyle = 'rgba(0, 229, 255, 0.25)';
+                    ctx.strokeStyle = '#00e5ff';
+                    currentActiveNote = block.note;
+                } else {
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+                }
+
+                ctx.beginPath();
+                ctx.roundRect(x, y, w, h, 4);
+                ctx.fill();
+                ctx.stroke();
+
+                if (w > 30) {
+                    ctx.fillStyle = '#e2e8f0';
+                    ctx.font = 'bold 9px Orbitron';
+                    ctx.fillText(getNoteName(block.note), x + 6, y + 13);
+                }
+            });
+
+            // 音声ガイドがトリガーされたらシンセを再生
+            if (currentActiveNote) {
+                if (activeSynthNote !== currentActiveNote) {
+                    activeSynthNote = currentActiveNote;
+                    startSynth(frequencyFromNoteNumber(currentActiveNote));
+                }
+            } else {
+                stopSynth();
+            }
+
+            // あなたの歌声をピンクのドットでタイムラインにプロット（ネオン風グロー付き）
+            ctx.fillStyle = '#ff007f';
+            ctx.shadowBlur = 8;
+            ctx.shadowColor = '#ff007f';
+            userVoiceHistory.forEach(point => {
+                const px = timeToX(point.time);
+                if (px >= 0 && px <= canvas.width) {
+                    const py = pitchToY(point.midi);
+                    ctx.beginPath();
+                    ctx.arc(px, py, 4, 0, 2 * Math.PI);
+                    ctx.fill();
+                }
+            });
+            ctx.shadowBlur = 0; // 他の描画に影をひきずらないようにリセット
+
+            requestAnimationFrame(renderTimeline);
+        }
+
+        // 練習スタートボタンイベント
+        btnPlay.addEventListener('click', async () => {
+            const success = await initAudio();
+            if (!success) return;
+            if (audioContext.state === 'suspended') {
+                await audioContext.resume();
+            }
+            isPlaying = true;
+            playStartTime = audioContext.currentTime;
+            userVoiceHistory = [];
+            btnPlay.disabled = true;
+            btnPlay.className = "bg-gray-800 text-gray-500 font-bold px-6 py-2.5 rounded-lg flex items-center gap-2 cursor-not-allowed";
+            btnStop.disabled = false;
+            btnStop.className = "bg-rose-600 hover:bg-rose-500 text-white font-bold px-6 py-2.5 rounded-lg flex items-center gap-2 transition duration-200";
+            recordingPulse.className = "w-3 h-3 rounded-full bg-[#ff007f] animate-ping";
+        });
+
+        // 練習停止関数
+        function stopPlaying() {
+            isPlaying = false;
+            stopSynth();
+            btnPlay.disabled = false;
+            btnPlay.className = "bg-gradient-to-r from-[#00e5ff] to-blue-600 hover:from-[#00e5ff]/90 hover:to-blue-600/90 text-black font-bold px-6 py-2.5 rounded-lg flex items-center gap-2";
+            btnStop.disabled = true;
+            btnStop.className = "bg-gray-800 text-gray-600 font-bold px-4 py-2.5 rounded-lg flex items-center gap-2 cursor-not-allowed";
+            recordingPulse.className = "w-3 h-3 rounded-full bg-gray-600";
+            updateAccuracyUI(null);
+            smoothedPitch = null;
+            smoothedCents = 0;
+            currentNoteEl.textContent = "--";
+            currentNoteEl.className = "font-digital text-7xl font-black text-gray-600 transition-all duration-100";
+            tuningNeedle.style.left = `50%`;
+            tuningNeedle.className = "absolute top-0 bottom-0 w-1.5 bg-gray-400 left-1/2 -translate-x-1/2 transition-all duration-75 shadow-lg";
+        }
+
+        btnStop.addEventListener('click', stopPlaying);
+
+        // 初期ロード時の実行
+        resizeCanvas();
+        renderTimeline();
+    </script>
+</body>
+</html>
