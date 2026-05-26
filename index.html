@@ -37,14 +37,24 @@
     <main class="flex-grow flex flex-col md:flex-row p-4 gap-4 overflow-hidden">
         
         <section class="flex-none md:w-80 bg-gray-900/40 border border-gray-800 rounded-2xl p-6 flex flex-col items-center justify-center gap-2">
-            <div id="current-note" class="font-digital text-7xl md:text-8xl font-black text-gray-700 transition-colors duration-300">--</div>
+            <div id="current-note" class="font-digital text-6xl md:text-7xl font-black text-gray-700 transition-colors duration-300">--</div>
             <div id="current-hz" class="text-lg text-gray-500 font-digital">0.00 Hz</div>
+            
+            <div class="mt-6 w-full grid grid-cols-2 gap-4 text-center">
+                <div>
+                    <div class="text-[10px] text-gray-500 uppercase tracking-widest">ビブラート</div>
+                    <div id="vibrato-val" class="font-digital text-lg text-[#00ff9d]">0.0</div>
+                </div>
+                <div>
+                    <div class="text-[10px] text-gray-500 uppercase tracking-widest">変化度</div>
+                    <div id="change-val" class="font-digital text-lg text-[#ff007f]">Normal</div>
+                </div>
+            </div>
             
             <div class="w-full h-3 bg-black/40 rounded-full overflow-hidden relative border border-gray-800 mt-6">
                 <div class="absolute left-1/2 top-0 bottom-0 w-px bg-white/20"></div>
                 <div id="tuning-needle" class="absolute top-0 bottom-0 w-1 bg-[#00e5ff] left-1/2 -translate-x-1/2 transition-all duration-75"></div>
             </div>
-            <div id="cents-label" class="text-xs font-digital text-gray-500 mt-2">0 cents</div>
         </section>
 
         <section class="flex-grow bg-black/20 border border-gray-800 rounded-2xl p-2 relative overflow-hidden">
@@ -59,43 +69,23 @@
     </footer>
 
     <script>
-        let audioContext = null;
-        let analyser = null;
-        let biquadFilter = null;
-        let micStream = null;
-        let isRunning = false;
-        let smoothedPitch = 0;
+        let audioContext = null, analyser = null, biquadFilter = null, micStream = null, isRunning = false;
+        let pitchHistory = [], lastPitch = 0, smoothedPitch = 0;
         
         const canvas = document.getElementById('pitch-canvas');
         const ctx = canvas.getContext('2d');
-        const currentNoteEl = document.getElementById('current-note');
-        const currentHzEl = document.getElementById('current-hz');
-        const tuningNeedle = document.getElementById('tuning-needle');
-        const centsLabel = document.getElementById('cents-label');
-        const statusPulse = document.getElementById('status-pulse');
-        const btnToggleMic = document.getElementById('btn-toggle-mic');
-        const btnText = document.getElementById('btn-text');
+        const currentNoteEl = document.getElementById('current-note'), currentHzEl = document.getElementById('current-hz'), tuningNeedle = document.getElementById('tuning-needle'), statusPulse = document.getElementById('status-pulse'), btnToggleMic = document.getElementById('btn-toggle-mic'), btnText = document.getElementById('btn-text');
+        const vibratoEl = document.getElementById('vibrato-val'), changeEl = document.getElementById('change-val');
 
         function autoCorrelate(buffer, sampleRate) {
-            let size = buffer.length;
-            let rms = 0;
+            let size = buffer.length, rms = 0;
             for (let i = 0; i < size; i++) rms += buffer[i] * buffer[i];
             rms = Math.sqrt(rms / size);
             if (rms < 0.01) return -1;
-
             let c = new Float32Array(size);
-            for (let i = 0; i < size; i++) {
-                for (let j = 0; j < size - i; j++) c[i] += buffer[j] * buffer[j + i];
-            }
-
-            let bestT = -1;
-            let threshold = 0.2 * c[0];
-            for (let i = 1; i < size; i++) {
-                if (c[i] > threshold && c[i] > c[i-1] && c[i] > c[i+1]) {
-                    bestT = i;
-                    break;
-                }
-            }
+            for (let i = 0; i < size; i++) for (let j = 0; j < size - i; j++) c[i] += buffer[j] * buffer[j + i];
+            let bestT = -1, threshold = 0.2 * c[0];
+            for (let i = 1; i < size; i++) if (c[i] > threshold && c[i] > c[i-1] && c[i] > c[i+1]) { bestT = i; break; }
             return bestT === -1 ? -1 : sampleRate / bestT;
         }
 
@@ -103,64 +93,51 @@
             try {
                 if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 if (audioContext.state === 'suspended') await audioContext.resume();
-
-                micStream = await navigator.mediaDevices.getUserMedia({ 
-                    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } 
-                });
+                micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
                 const source = audioContext.createMediaStreamSource(micStream);
-                
-                biquadFilter = audioContext.createBiquadFilter();
-                biquadFilter.type = "lowpass";
-                biquadFilter.frequency.value = 1000; 
-
-                analyser = audioContext.createAnalyser();
-                analyser.fftSize = 2048;
-                
-                source.connect(biquadFilter);
-                biquadFilter.connect(analyser);
-                
-                isRunning = true;
-                btnText.textContent = "停止";
-                btnToggleMic.className = "w-full bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 font-bold py-4 rounded-xl flex items-center justify-center gap-3 transition";
-                statusPulse.className = "w-2 h-2 rounded-full bg-emerald-400 animate-pulse";
+                biquadFilter = audioContext.createBiquadFilter(); biquadFilter.type = "lowpass"; biquadFilter.frequency.value = 1000; 
+                analyser = audioContext.createAnalyser(); analyser.fftSize = 2048;
+                source.connect(biquadFilter); biquadFilter.connect(analyser);
+                isRunning = true; btnText.textContent = "停止"; statusPulse.className = "w-2 h-2 rounded-full bg-emerald-400 animate-pulse";
                 requestAnimationFrame(updateLoop);
-            } catch (e) {
-                alert("マイクへのアクセスを許可してください。");
-            }
+            } catch (e) { alert("マイクへのアクセスを許可してください。"); }
         }
 
-        function stopMonitoring() {
-            if (micStream) micStream.getTracks().forEach(t => t.stop());
-            isRunning = false;
-            btnText.textContent = "マイクを有効化";
-            btnToggleMic.className = "w-full bg-[#00e5ff]/10 border border-[#00e5ff]/30 text-[#00e5ff] hover:bg-[#00e5ff]/20 font-bold py-4 rounded-xl flex items-center justify-center gap-3 transition";
-            statusPulse.className = "w-2 h-2 rounded-full bg-gray-700";
-        }
-
+        function stopMonitoring() { if (micStream) micStream.getTracks().forEach(t => t.stop()); isRunning = false; btnText.textContent = "マイクを有効化"; statusPulse.className = "w-2 h-2 rounded-full bg-gray-700"; }
         btnToggleMic.addEventListener('click', () => isRunning ? stopMonitoring() : startMonitoring());
 
         function updateLoop() {
             if (!isRunning) return;
-            const data = new Float32Array(analyser.fftSize);
-            analyser.getFloatTimeDomainData(data);
+            const data = new Float32Array(analyser.fftSize); analyser.getFloatTimeDomainData(data);
             const pitch = autoCorrelate(data, audioContext.sampleRate);
 
             if (pitch > 60 && pitch < 1200) {
                 smoothedPitch = (pitch * 0.1) + (smoothedPitch * 0.9);
+                pitchHistory.push(smoothedPitch); if (pitchHistory.length > 100) pitchHistory.shift();
+                
+                // ビブラート・変化解析
+                let diff = smoothedPitch - lastPitch;
+                vibratoEl.textContent = Math.abs(diff > 5 ? (diff * 0.5).toFixed(1) : 0);
+                changeEl.textContent = Math.abs(diff) > 20 ? (diff > 0 ? "しゃくり" : "フォール") : "Normal";
+                lastPitch = smoothedPitch;
+
                 const midi = Math.round(12 * Math.log2(smoothedPitch / 440) + 69);
                 const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-                
                 currentNoteEl.textContent = noteNames[midi % 12];
-                currentNoteEl.className = "font-digital text-7xl md:text-8xl font-black text-[#00e5ff]";
+                currentNoteEl.className = "font-digital text-6xl md:text-7xl font-black text-[#00e5ff]";
                 currentHzEl.textContent = smoothedPitch.toFixed(1) + " Hz";
-                
-                const cents = 1200 * Math.log2(smoothedPitch / (440 * Math.pow(2, (midi - 69) / 12)));
-                centsLabel.textContent = Math.round(cents) + " cents";
-                tuningNeedle.style.left = Math.max(0, Math.min(100, 50 + cents)) + "%";
-            } else {
-                currentNoteEl.className = "font-digital text-7xl md:text-8xl font-black text-gray-700";
-            }
+                tuningNeedle.style.left = Math.max(0, Math.min(100, 50 + (1200 * Math.log2(smoothedPitch / (440 * Math.pow(2, (midi - 69) / 12)))))) + "%";
 
+                // 簡易グラフ描画
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.beginPath(); ctx.strokeStyle = "#00e5ff"; ctx.lineWidth = 2;
+                pitchHistory.forEach((p, i) => {
+                    let x = (i / 100) * canvas.width;
+                    let y = canvas.height - ((p - 100) / 800) * canvas.height;
+                    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+                });
+                ctx.stroke();
+            }
             requestAnimationFrame(updateLoop);
         }
     </script>
