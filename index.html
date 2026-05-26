@@ -38,7 +38,8 @@
         
         <section class="flex-none md:w-80 bg-gray-900/40 border border-gray-800 rounded-2xl p-6 flex flex-col items-center justify-center gap-2">
             <div id="current-note" class="font-digital text-6xl md:text-7xl font-black text-gray-700 transition-colors duration-300">--</div>
-            <div id="current-hz" class="text-lg text-gray-500 font-digital">0.00 Hz</div>
+            <div id="current-octave" class="text-sm text-gray-400 font-digital tracking-widest mt-[-10px]">--</div>
+            <div id="current-hz" class="text-lg text-gray-500 font-digital mt-2">0.00 Hz</div>
             
             <div class="mt-6 w-full grid grid-cols-2 gap-4 text-center">
                 <div>
@@ -74,10 +75,10 @@
         
         const canvas = document.getElementById('pitch-canvas');
         const ctx = canvas.getContext('2d');
-        const currentNoteEl = document.getElementById('current-note'), currentHzEl = document.getElementById('current-hz'), tuningNeedle = document.getElementById('tuning-needle'), statusPulse = document.getElementById('status-pulse'), btnToggleMic = document.getElementById('btn-toggle-mic'), btnText = document.getElementById('btn-text');
+        const currentNoteEl = document.getElementById('current-note'), currentHzEl = document.getElementById('current-hz'), currentOctaveEl = document.getElementById('current-octave');
+        const tuningNeedle = document.getElementById('tuning-needle'), statusPulse = document.getElementById('status-pulse'), btnToggleMic = document.getElementById('btn-toggle-mic'), btnText = document.getElementById('btn-text');
         const vibratoEl = document.getElementById('vibrato-val'), changeEl = document.getElementById('change-val');
 
-        // Canvasのサイズを親要素に合わせる設定
         function resizeCanvas() {
             canvas.width = canvas.clientWidth;
             canvas.height = canvas.clientHeight;
@@ -128,24 +129,4 @@
                 changeEl.textContent = Math.abs(diff) > 20 ? (diff > 0 ? "しゃくり" : "フォール") : "Normal";
                 lastPitch = smoothedPitch;
 
-                const midi = Math.round(12 * Math.log2(smoothedPitch / 440) + 69);
-                const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-                currentNoteEl.textContent = noteNames[midi % 12];
-                currentNoteEl.className = "font-digital text-6xl md:text-7xl font-black text-[#00e5ff]";
-                currentHzEl.textContent = smoothedPitch.toFixed(1) + " Hz";
-                tuningNeedle.style.left = Math.max(0, Math.min(100, 50 + (1200 * Math.log2(smoothedPitch / (440 * Math.pow(2, (midi - 69) / 12)))))) + "%";
-
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                ctx.beginPath(); ctx.strokeStyle = "#00e5ff"; ctx.lineWidth = 2;
-                pitchHistory.forEach((p, i) => {
-                    let x = (i / 100) * canvas.width;
-                    let y = canvas.height - ((p - 100) / 800) * canvas.height;
-                    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-                });
-                ctx.stroke();
-            }
-            requestAnimationFrame(updateLoop);
-        }
-    </script>
-</body>
-</html>
+                const midi = Math.round(12 * Math.log2(smoothedPitch
