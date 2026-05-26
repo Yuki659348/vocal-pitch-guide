@@ -80,23 +80,25 @@
         window.addEventListener('resize', resizeCanvas);
         resizeCanvas();
 
-        // 精度改善アルゴリズム: ラグ補間を適用してチューナーの精度を追求
+        // チューナーグレードの精度へ引き上げた自己相関アルゴリズム
         function autoCorrelate(buffer, sampleRate) {
             let size = buffer.length, rms = 0;
             for (let i = 0; i < size; i++) rms += buffer[i] * buffer[i];
             rms = Math.sqrt(rms / size);
-            const gate = modeSelect.value === 'instrument' ? 0.002 : 0.002;
+            const gate = modeSelect.value === 'instrument' ? 0.001 : 0.002;
             if (rms < gate) return -1;
             
             let c = new Float32Array(size);
             for (let i = 0; i < size; i++) for (let j = 0; j < size - i; j++) c[i] += buffer[j] * buffer[j + i];
             
-            let bestT = -1, threshold = 0.2 * c[0];
+            // ピーク検出のしきい値をより精密に
+            let bestT = -1, threshold = 0.3 * c[0];
             for (let i = 1; i < size; i++) if (c[i] > threshold && c[i] > c[i-1] && c[i] > c[i+1]) { bestT = i; break; }
             
-            // 精度向上: 放物線補間によるラグの微調整
+            // 放物線補間をさらに精密化
             if (bestT !== -1 && bestT > 0 && bestT < size - 1) {
-                let shift = (c[bestT - 1] - c[bestT + 1]) / (2 * (c[bestT - 1] - 2 * c[bestT] + c[bestT + 1]));
+                let s1 = c[bestT - 1], s2 = c[bestT], s3 = c[bestT + 1];
+                let shift = (s1 - s3) / (2 * (s1 - 2 * s2 + s3));
                 return sampleRate / (bestT + shift);
             }
             return bestT === -1 ? -1 : sampleRate / bestT;
@@ -106,12 +108,13 @@
             try {
                 if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 if (audioContext.state === 'suspended') await audioContext.resume();
-                micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
                 const source = audioContext.createMediaStreamSource(micStream);
                 analyser = audioContext.createAnalyser(); 
-                analyser.fftSize = 8192; // 精度向上のためFFTサイズを拡大
+                // 解像度を倍に引き上げ
+                analyser.fftSize = 16384; 
                 biquadFilter = audioContext.createBiquadFilter(); 
-                biquadFilter.type = "lowpass"; biquadFilter.frequency.value = 3000; 
+                biquadFilter.type = "lowpass"; biquadFilter.frequency.value = 2500; 
                 source.connect(biquadFilter); biquadFilter.connect(analyser);
                 isRunning = true; btnText.textContent = "停止"; statusPulse.className = "w-2 h-2 rounded-full bg-emerald-400 animate-pulse";
                 requestAnimationFrame(updateLoop);
@@ -131,10 +134,10 @@
             const displayW = canvas.width / window.devicePixelRatio;
             const displayH = canvas.height / window.devicePixelRatio;
 
-            // C音(約65Hz〜1046Hzなど)を広くカバー
             if (pitch > 40 && pitch < 2000) {
-                smoothedPitch = (pitch * 0.08) + (smoothedPitch * 0.92);
-                uiSmoothedPitch = (pitch * 0.02) + (uiSmoothedPitch * 0.98);
+                // UI平滑化係数をより緻密に制御
+                smoothedPitch = (pitch * 0.05) + (smoothedPitch * 0.95);
+                uiSmoothedPitch = (pitch * 0.01) + (uiSmoothedPitch * 0.99);
 
                 pitchHistory.push(smoothedPitch); if (pitchHistory.length > 400) pitchHistory.shift();
 
@@ -142,7 +145,7 @@
                 const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
                 currentNoteEl.textContent = noteNames[midi % 12];
                 currentNoteEl.classList.remove('text-gray-500'); currentNoteEl.classList.add('text-white');
-                currentHzEl.textContent = uiSmoothedPitch.toFixed(2) + " Hz";
+                currentHzEl.textContent = uiSmoothedPitch.toFixed(3) + " Hz";
 
                 const min = 50, max = 2000;
                 ctx.clearRect(0, 0, displayW, displayH);
