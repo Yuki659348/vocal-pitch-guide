@@ -20,13 +20,14 @@
             background-color: #05070a; 
             color: #e2e8f0; 
             overflow: hidden; 
+            height: 100dvh;
             padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
         }
         .font-digital { font-family: 'Orbitron', sans-serif; }
         input[type=range] { accent-color: #00e5ff; }
     </style>
 </head>
-<body class="h-screen flex flex-col">
+<body class="flex flex-col h-[100dvh]">
 
     <header class="flex-none flex justify-between items-center bg-gray-950/50 p-4 border-b border-gray-800 backdrop-blur-md">
         <h1 class="text-sm font-bold tracking-widest text-white/70">
@@ -35,9 +36,9 @@
         <div id="status-pulse" class="w-2 h-2 rounded-full bg-gray-700"></div>
     </header>
 
-    <main class="flex-grow flex flex-col md:flex-row p-4 gap-4 overflow-hidden">
+    <main class="flex-grow flex flex-col md:flex-row p-4 gap-4 overflow-hidden min-h-0">
         
-        <section class="flex-none md:w-80 bg-gray-900/40 border border-gray-800 rounded-2xl p-6 flex flex-col gap-4">
+        <section class="flex-none md:w-80 bg-gray-900/40 border border-gray-800 rounded-2xl p-6 flex flex-col gap-4 overflow-y-auto">
             <div class="text-center">
                 <div id="current-note" class="font-digital text-5xl font-black text-gray-700 transition-colors duration-300">--</div>
                 <div id="current-hz" class="text-lg text-gray-500 font-digital mt-1">0.00 Hz</div>
@@ -55,25 +56,24 @@
                         <span>表示倍率 (Zoom)</span>
                         <span id="zoom-val">1.0x</span>
                     </div>
-                    <!-- 最小値を0.05まで拡張し、より広い表示を可能にしました -->
                     <input id="zoom-slider" type="range" min="0.05" max="2.0" step="0.05" value="1.0" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
                 </div>
             </div>
             
-            <div class="mt-auto grid grid-cols-2 gap-4 text-center">
+            <div class="mt-auto grid grid-cols-2 gap-4 text-center pt-4">
                 <div class="bg-black/20 p-2 rounded-lg">
                     <div class="text-[10px] text-gray-500">ビブラート</div>
                     <div id="vibrato-val" class="font-digital text-lg text-[#00ff9d]">0.0</div>
                 </div>
                 <div class="bg-black/20 p-2 rounded-lg">
-                    <div class="text-[10px] text-gray-500">ピッチ挙動</div>
+                    <div class="text-[10px] text-gray-500">ステータス</div>
                     <div id="change-val" class="font-digital text-lg text-[#ff007f]">--</div>
                 </div>
             </div>
         </section>
 
-        <section class="flex-grow bg-black/20 border border-gray-800 rounded-2xl p-2 relative overflow-hidden">
-            <canvas id="pitch-canvas" class="w-full h-full"></canvas>
+        <section class="flex-grow bg-black/20 border border-gray-800 rounded-2xl p-2 relative overflow-hidden min-h-[200px]">
+            <canvas id="pitch-canvas" class="w-full h-full block"></canvas>
         </section>
     </main>
 
@@ -93,9 +93,17 @@
         const currentNoteEl = document.getElementById('current-note'), currentHzEl = document.getElementById('current-hz');
         const rangeSelect = document.getElementById('range-select');
         const statusPulse = document.getElementById('status-pulse'), btnToggleMic = document.getElementById('btn-toggle-mic'), btnText = document.getElementById('btn-text');
-        const vibratoEl = document.getElementById('vibrato-val'), changeEl = document.getElementById('change-val');
+        const vibratoEl = document.getElementById('vibrato-val');
 
         const ranges = { low: [60, 400], mid: [200, 800], high: [600, 1500] };
+
+        function resizeCanvas() {
+            canvas.width = canvas.clientWidth * window.devicePixelRatio;
+            canvas.height = canvas.clientHeight * window.devicePixelRatio;
+            ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
 
         zoomSlider.addEventListener('input', (e) => zoomValEl.textContent = parseFloat(e.target.value).toFixed(2) + "x");
 
@@ -122,7 +130,7 @@
                 source.connect(biquadFilter); biquadFilter.connect(analyser);
                 isRunning = true; btnText.textContent = "停止"; statusPulse.className = "w-2 h-2 rounded-full bg-emerald-400 animate-pulse";
                 requestAnimationFrame(updateLoop);
-            } catch (e) { alert("マイクへのアクセスを許可してください。"); }
+            } catch (e) { console.error(e); }
         }
 
         function stopMonitoring() { 
@@ -135,6 +143,8 @@
             if (!isRunning) return;
             const data = new Float32Array(analyser.fftSize); analyser.getFloatTimeDomainData(data);
             const pitch = autoCorrelate(data, audioContext.sampleRate);
+            const displayW = canvas.width / window.devicePixelRatio;
+            const displayH = canvas.height / window.devicePixelRatio;
 
             if (pitch > 50 && pitch < 2000) {
                 smoothedPitch = (pitch * 0.1) + (smoothedPitch * 0.9);
@@ -154,13 +164,23 @@
                 const min = Math.max(0, smoothedPitch - (rangeWidth / 2));
                 const max = Math.min(2000, smoothedPitch + (rangeWidth / 2));
 
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.clearRect(0, 0, displayW, displayH);
+                
+                // 横線（グリッド）を描画
+                ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
+                ctx.lineWidth = 1;
+                for (let i = 0; i <= 10; i++) {
+                    let y = i * (displayH / 10);
+                    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(displayW, y); ctx.stroke();
+                }
+
+                // ピッチ履歴の描画
                 ctx.beginPath();
                 ctx.strokeStyle = "#00e5ff";
-                ctx.lineWidth = 2;
+                ctx.lineWidth = 3;
                 pitchHistory.forEach((p, i) => {
-                    let x = (i / 200) * canvas.width;
-                    let y = canvas.height - ((p - min) / (max - min)) * canvas.height;
+                    let x = (i / 200) * displayW;
+                    let y = displayH - ((p - min) / (max - min)) * displayH;
                     i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
                 });
                 ctx.stroke();
