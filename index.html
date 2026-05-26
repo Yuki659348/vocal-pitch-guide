@@ -54,7 +54,7 @@
         let pitchHistory = [];
         let smoothedPitch = 0;
         const MAX_HISTORY = 100;
-        const SMOOTHING = 0.16; // iOS版と同等の平滑化係数
+        const SMOOTHING = 0.16;
         
         const canvas = document.getElementById('pitch-canvas');
         const ctx = canvas.getContext('2d', { alpha: false });
@@ -73,7 +73,6 @@
             let size = buffer.length, rms = 0;
             for (let i = 0; i < size; i++) rms += buffer[i] * buffer[i];
             rms = Math.sqrt(rms / size);
-            // 閾値を下げて感度を向上（iOSアプリ同等の感度）
             if (rms < 0.01) return -1;
             
             let c = new Float32Array(size);
@@ -106,12 +105,10 @@
                 const pitch = autoCorrelate(timeDomainData, audioContext.sampleRate);
                 
                 if (pitch > 40 && pitch < 2000) {
-                    // EMA平滑化の適用
                     smoothedPitch = (SMOOTHING * pitch) + ((1.0 - SMOOTHING) * (smoothedPitch || pitch));
                     pitchHistory.push(smoothedPitch);
                     if (pitchHistory.length > MAX_HISTORY) pitchHistory.shift();
 
-                    // 音名とセント計算（修正済み）
                     const midiNote = Math.round(12 * Math.log2(smoothedPitch / 440) + 69);
                     const targetFreq = 440 * Math.pow(2, (midiNote - 69) / 12);
                     const cents = 1200 * Math.log2(smoothedPitch / targetFreq);
@@ -127,6 +124,26 @@
             ctx.fillStyle = '#05070a';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             
+            // グリッドの描画
+            ctx.strokeStyle = '#1e293b';
+            ctx.lineWidth = 1;
+            
+            // 縦線（時間）
+            for(let i = 0; i <= 10; i++) {
+                ctx.beginPath();
+                ctx.moveTo(canvas.width * (i/10), 0);
+                ctx.lineTo(canvas.width * (i/10), canvas.height);
+                ctx.stroke();
+            }
+            // 横線（音程）
+            for(let i = 0; i <= 8; i++) {
+                ctx.beginPath();
+                ctx.moveTo(0, canvas.height * (i/8));
+                ctx.lineTo(canvas.width, canvas.height * (i/8));
+                ctx.stroke();
+            }
+
+            // ピッチ軌跡の描画
             ctx.strokeStyle = '#f472b6';
             ctx.lineWidth = 3;
             ctx.beginPath();
@@ -135,7 +152,6 @@
             
             pitchHistory.forEach((p, i) => {
                 const x = (i / MAX_HISTORY) * w;
-                // ピッチ変化を見やすく調整
                 const y = h - ((Math.log2(p/60) / Math.log2(1500/60)) * h);
                 i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
             });
