@@ -77,6 +77,14 @@
         const currentNoteEl = document.getElementById('current-note'), currentHzEl = document.getElementById('current-hz'), tuningNeedle = document.getElementById('tuning-needle'), statusPulse = document.getElementById('status-pulse'), btnToggleMic = document.getElementById('btn-toggle-mic'), btnText = document.getElementById('btn-text');
         const vibratoEl = document.getElementById('vibrato-val'), changeEl = document.getElementById('change-val');
 
+        // Canvasのサイズを親要素に合わせる設定
+        function resizeCanvas() {
+            canvas.width = canvas.clientWidth;
+            canvas.height = canvas.clientHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
         function autoCorrelate(buffer, sampleRate) {
             let size = buffer.length, rms = 0;
             for (let i = 0; i < size; i++) rms += buffer[i] * buffer[i];
@@ -115,7 +123,6 @@
                 smoothedPitch = (pitch * 0.1) + (smoothedPitch * 0.9);
                 pitchHistory.push(smoothedPitch); if (pitchHistory.length > 100) pitchHistory.shift();
                 
-                // ビブラート・変化解析
                 let diff = smoothedPitch - lastPitch;
                 vibratoEl.textContent = Math.abs(diff > 5 ? (diff * 0.5).toFixed(1) : 0);
                 changeEl.textContent = Math.abs(diff) > 20 ? (diff > 0 ? "しゃくり" : "フォール") : "Normal";
@@ -128,7 +135,6 @@
                 currentHzEl.textContent = smoothedPitch.toFixed(1) + " Hz";
                 tuningNeedle.style.left = Math.max(0, Math.min(100, 50 + (1200 * Math.log2(smoothedPitch / (440 * Math.pow(2, (midi - 69) / 12)))))) + "%";
 
-                // 簡易グラフ描画
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
                 ctx.beginPath(); ctx.strokeStyle = "#00e5ff"; ctx.lineWidth = 2;
                 pitchHistory.forEach((p, i) => {
