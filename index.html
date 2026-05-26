@@ -2,55 +2,58 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>VOICE PITCH MONITOR</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Rajdhani:wght@500;700&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Rajdhani:wght@500;700&display=swap" rel="stylesheet">
     
     <style>
-        body { font-family: 'Rajdhani', sans-serif; background-color: #05070a; color: #e2e8f0; overflow: hidden; height: 100dvh; }
+        body { font-family: 'Rajdhani', sans-serif; background-color: #05070a; color: #e2e8f0; overflow: hidden; height: 100vh; }
         .font-digital { font-family: 'Orbitron', sans-serif; }
     </style>
 </head>
-<body class="flex flex-col h-[100dvh]">
+<body class="flex flex-col h-screen">
 
     <header class="flex-none flex justify-between items-center p-4 border-b border-gray-800">
-        <h1 class="text-sm font-bold tracking-widest text-white/70">PITCH MONITOR LITE</h1>
+        <h1 class="text-xs font-bold tracking-widest text-white/50">PITCH MONITOR LITE</h1>
         <div id="status-pulse" class="w-2 h-2 rounded-full bg-gray-700"></div>
     </header>
 
-    <main class="flex-grow flex flex-col p-4 gap-4">
-        <div class="bg-gray-900/40 p-4 rounded-2xl border border-gray-800">
-            <div id="current-note" class="font-digital text-5xl font-black text-white">--</div>
-            <div id="current-hz" class="text-sm text-gray-400 font-digital">0.00 Hz</div>
+    <main class="flex-grow flex flex-col p-4 gap-4 overflow-hidden">
+        <div class="bg-gray-900/40 p-5 rounded-2xl border border-gray-800">
+            <div id="current-note" class="font-digital text-6xl font-black text-white leading-none">--</div>
+            <div id="current-hz" class="text-xs text-gray-400 font-digital mt-1">0.00 Hz</div>
         </div>
-        <section class="flex-grow bg-black/20 border border-gray-800 rounded-2xl p-2 relative overflow-hidden">
-            <canvas id="pitch-canvas" class="w-full h-full block"></canvas>
-        </section>
+        <div class="flex-grow bg-black/20 border border-gray-800 rounded-2xl p-1 relative overflow-hidden">
+            <canvas id="pitch-canvas" class="w-full h-full"></canvas>
+        </div>
     </main>
 
     <footer class="p-4">
-        <button id="btn-toggle-mic" class="w-full bg-[#00e5ff]/10 border border-[#00e5ff]/30 text-[#00e5ff] py-4 rounded-xl font-bold">
+        <button id="btn-toggle-mic" class="w-full bg-cyan-900/30 border border-cyan-500/30 text-cyan-400 py-4 rounded-xl font-bold tracking-wider">
             マイクを有効化
         </button>
     </footer>
 
     <script>
-        let audioContext, analyser, micStream, isRunning = false;
-        let pitchHistory = new Float32Array(200); 
-        let timeDomainData = new Float32Array(8192);
-        
+        let audioContext, analyser, biquadFilter, timeDomainData, isRunning = false;
+        let frameCounter = 0;
         const canvas = document.getElementById('pitch-canvas');
         const ctx = canvas.getContext('2d', { alpha: false });
         const btnToggleMic = document.getElementById('btn-toggle-mic');
-        
+
+        function resize() {
+            canvas.width = canvas.clientWidth * window.devicePixelRatio;
+            canvas.height = canvas.clientHeight * window.devicePixelRatio;
+        }
+        window.onresize = resize;
+        resize();
+
         function autoCorrelate(buffer, sampleRate) {
-            let size = buffer.length;
-            let rms = 0;
+            let size = buffer.length, rms = 0;
             for (let i = 0; i < size; i++) rms += buffer[i] * buffer[i];
-            if (Math.sqrt(rms / size) < 0.002) return -1;
+            if (Math.sqrt(rms / size) < 0.01) return -1;
             
             let c = new Float32Array(size);
             for (let i = 0; i < size; i++) for (let j = 0; j < size - i; j++) c[i] += buffer[j] * buffer[j + i];
@@ -58,53 +61,64 @@
             let bestT = -1, threshold = 0.3 * c[0];
             for (let i = 1; i < size; i++) if (c[i] > threshold && c[i] > c[i-1] && c[i] > c[i+1]) { bestT = i; break; }
             
-            if (bestT > 0 && bestT < size - 1) {
-                let s1 = c[bestT - 1], s2 = c[bestT], s3 = c[bestT + 1];
-                return sampleRate / (bestT + (s1 - s3) / (2 * (s1 - 2 * s2 + s3)));
-            }
-            return -1;
+            return bestT > 0 ? sampleRate / bestT : -1;
         }
 
-        async function startMonitoring() {
+        async function start() {
             audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const source = audioContext.createMediaStreamSource(micStream);
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            
+            // ローパスフィルタの追加：高域ノイズをカットして解析を安定化
+            biquadFilter = audioContext.createBiquadFilter();
+            biquadFilter.type = "lowpass";
+            biquadFilter.frequency.value = 2000;
+            
             analyser = audioContext.createAnalyser();
-            analyser.fftSize = 8192; // 負荷軽減のために8192へ
-            source.connect(analyser);
+            analyser.fftSize = 2048;
+            timeDomainData = new Float32Array(analyser.fftSize);
+            
+            const source = audioContext.createMediaStreamSource(stream);
+            source.connect(biquadFilter);
+            biquadFilter.connect(analyser);
+            
             isRunning = true;
             btnToggleMic.textContent = "停止";
-            requestAnimationFrame(updateLoop);
+            requestAnimationFrame(draw);
         }
 
-        function updateLoop() {
+        function draw() {
             if (!isRunning) return;
-            analyser.getFloatTimeDomainData(timeDomainData);
-            const pitch = autoCorrelate(timeDomainData, audioContext.sampleRate);
+            frameCounter++;
             
-            if (pitch > 40) {
-                const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-                const midi = Math.round(12 * Math.log2(pitch / 440) + 69);
-                document.getElementById('current-note').textContent = noteNames[midi % 12];
-                document.getElementById('current-hz').textContent = pitch.toFixed(1) + " Hz";
+            // 3フレームに1回だけ計算を行う（解析頻度の間引き）
+            if (frameCounter % 3 === 0) {
+                analyser.getFloatTimeDomainData(timeDomainData);
+                const pitch = autoCorrelate(timeDomainData, audioContext.sampleRate);
+                
+                if (pitch > 40) {
+                    const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+                    document.getElementById('current-note').textContent = noteNames[Math.round(12 * Math.log2(pitch / 440) + 69) % 12];
+                    document.getElementById('current-hz').textContent = pitch.toFixed(1) + " Hz";
+                }
             }
-            
-            // 描画の簡略化
+
+            // 描画処理：負荷を抑えるために簡素化
             ctx.fillStyle = '#05070a';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.strokeStyle = '#00e5ff';
+            ctx.strokeStyle = '#22d3ee';
             ctx.lineWidth = 2;
             ctx.beginPath();
-            for(let i=0; i<canvas.width; i+=10) {
-                ctx.moveTo(i, canvas.height/2 + Math.sin(i*0.05 + Date.now()*0.01)*50);
-                ctx.lineTo(i+5, canvas.height/2 + Math.sin((i+5)*0.05 + Date.now()*0.01)*50);
+            const slice = canvas.width / 128; // 表示する波形のデータ量を制限
+            for (let i = 0; i < 128; i++) {
+                const x = i * slice;
+                const y = (timeDomainData[i * 16] * canvas.height / 2) + canvas.height / 2;
+                i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
             }
             ctx.stroke();
-            
-            requestAnimationFrame(updateLoop);
+            requestAnimationFrame(draw);
         }
 
-        btnToggleMic.onclick = () => isRunning ? location.reload() : startMonitoring();
+        btnToggleMic.onclick = () => isRunning ? location.reload() : start();
     </script>
 </body>
 </html>
