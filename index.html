@@ -16,14 +16,17 @@
 <body class="flex flex-col h-screen">
 
     <header class="flex-none flex justify-between items-center p-4 border-b border-gray-800">
-        <h1 class="text-xs font-bold tracking-widest text-white/50">PITCH MONITOR LITE</h1>
+        <h1 class="text-xs font-bold tracking-widest text-white/50">VIBRATO MONITOR</h1>
         <div id="status-pulse" class="w-2 h-2 rounded-full bg-gray-700"></div>
     </header>
 
     <main class="flex-grow flex flex-col p-4 gap-4 overflow-hidden">
         <div class="bg-gray-900/40 p-5 rounded-2xl border border-gray-800">
-            <div id="current-note" class="font-digital text-6xl font-black text-white leading-none">--</div>
-            <div id="current-hz" class="text-xs text-gray-400 font-digital mt-1">0.00 Hz</div>
+            <div id="current-note" class="font-digital text-5xl font-black text-white leading-none">--</div>
+            <div class="flex gap-4 mt-2">
+                <div id="current-hz" class="text-xs text-gray-400 font-digital">0.00 Hz</div>
+                <div id="vibrato-status" class="text-xs text-cyan-400 font-digital">Vibrato: 0.0 Hz</div>
+            </div>
         </div>
         <div class="flex-grow bg-black/20 border border-gray-800 rounded-2xl p-1 relative overflow-hidden">
             <canvas id="pitch-canvas" class="w-full h-full"></canvas>
@@ -37,8 +40,10 @@
     </footer>
 
     <script>
-        let audioContext, analyser, biquadFilter, timeDomainData, isRunning = false;
+        let audioContext, analyser, timeDomainData, isRunning = false;
         let frameCounter = 0;
+        let pitchHistory = []; // 直近のピッチ履歴（ビブラート計算用）
+        
         const canvas = document.getElementById('pitch-canvas');
         const ctx = canvas.getContext('2d', { alpha: false });
         const btnToggleMic = document.getElementById('btn-toggle-mic');
@@ -68,18 +73,11 @@
             audioContext = new (window.AudioContext || window.webkitAudioContext)();
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             
-            // ローパスフィルタの追加：高域ノイズをカットして解析を安定化
-            biquadFilter = audioContext.createBiquadFilter();
-            biquadFilter.type = "lowpass";
-            biquadFilter.frequency.value = 2000;
-            
             analyser = audioContext.createAnalyser();
             analyser.fftSize = 2048;
             timeDomainData = new Float32Array(analyser.fftSize);
             
-            const source = audioContext.createMediaStreamSource(stream);
-            source.connect(biquadFilter);
-            biquadFilter.connect(analyser);
+            audioContext.createMediaStreamSource(stream).connect(analyser);
             
             isRunning = true;
             btnToggleMic.textContent = "停止";
@@ -90,28 +88,38 @@
             if (!isRunning) return;
             frameCounter++;
             
-            // 3フレームに1回だけ計算を行う（解析頻度の間引き）
             if (frameCounter % 3 === 0) {
                 analyser.getFloatTimeDomainData(timeDomainData);
                 const pitch = autoCorrelate(timeDomainData, audioContext.sampleRate);
                 
                 if (pitch > 40) {
+                    pitchHistory.push(pitch);
+                    if (pitchHistory.length > 30) pitchHistory.shift();
+
+                    // ビブラートの計算：直近のピッチ変動幅（最大-最小）
+                    const maxP = Math.max(...pitchHistory);
+                    const minP = Math.min(...pitchHistory);
+                    const vibrato = (maxP - minP).toFixed(1);
+                    
+                    document.getElementById('vibrato-status').textContent = `Vibrato: ${vibrato} Hz`;
+
                     const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
                     document.getElementById('current-note').textContent = noteNames[Math.round(12 * Math.log2(pitch / 440) + 69) % 12];
                     document.getElementById('current-hz').textContent = pitch.toFixed(1) + " Hz";
                 }
             }
 
-            // 描画処理：負荷を抑えるために簡素化
             ctx.fillStyle = '#05070a';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             ctx.strokeStyle = '#22d3ee';
             ctx.lineWidth = 2;
             ctx.beginPath();
-            const slice = canvas.width / 128; // 表示する波形のデータ量を制限
+            
+            const slice = canvas.width / 128;
             for (let i = 0; i < 128; i++) {
                 const x = i * slice;
-                const y = (timeDomainData[i * 16] * canvas.height / 2) + canvas.height / 2;
+                // ビブラートの揺れを強調するために波形を少し垂直方向に増幅
+                const y = (timeDomainData[i * 16] * canvas.height * 0.8) + canvas.height / 2;
                 i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
             }
             ctx.stroke();
