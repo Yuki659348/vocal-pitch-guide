@@ -55,6 +55,7 @@
     <script>
         let audioContext = null;
         let analyser = null;
+        let biquadFilter = null;
         let micStream = null;
         let isRunning = false;
         let smoothedPitch = 0;
@@ -69,22 +70,30 @@
         const btnToggleMic = document.getElementById('btn-toggle-mic');
         const btnText = document.getElementById('btn-text');
 
+        // 倍音をカットするための自己相関強化版アルゴリズム
         function autoCorrelate(buffer, sampleRate) {
+            let size = buffer.length;
             let rms = 0;
-            for (let i = 0; i < buffer.length; i++) rms += buffer[i] * buffer[i];
-            rms = Math.sqrt(rms / buffer.length);
-            if (rms < 0.005) return -1; // 閾値を下げて感度アップ
-            
-            let c = new Float32Array(buffer.length);
-            for (let i = 0; i < buffer.length; i++) {
-                for (let j = 0; j < buffer.length - i; j++) c[i] += buffer[j] * buffer[j + i];
+            for (let i = 0; i < size; i++) rms += buffer[i] * buffer[i];
+            rms = Math.sqrt(rms / size);
+            if (rms < 0.01) return -1; // ノイズゲートを少し引き上げ
+
+            // 自己相関
+            let c = new Float32Array(size);
+            for (let i = 0; i < size; i++) {
+                for (let j = 0; j < size - i; j++) c[i] += buffer[j] * buffer[j + i];
             }
-            let d = 0; while (c[d] > c[d + 1]) d++;
-            let maxpos = -1, maxval = -1;
-            for (let i = d; i < buffer.length; i++) {
-                if (c[i] > maxval) { maxval = c[i]; maxpos = i; }
+
+            // 基音付近（高い周波数から順にチェックし、最初の大きな山を探す）
+            let bestT = -1;
+            let threshold = 0.2 * c[0];
+            for (let i = 1; i < size; i++) {
+                if (c[i] > threshold && c[i] > c[i-1] && c[i] > c[i+1]) {
+                    bestT = i;
+                    break;
+                }
             }
-            return sampleRate / maxpos;
+            return bestT === -1 ? -1 : sampleRate / bestT;
         }
 
         async function startMonitoring() {
@@ -96,9 +105,17 @@
                     audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } 
                 });
                 const source = audioContext.createMediaStreamSource(micStream);
+                
+                // ローパスフィルターを追加して基音成分を強調
+                biquadFilter = audioContext.createBiquadFilter();
+                biquadFilter.type = "lowpass";
+                biquadFilter.frequency.value = 1000; 
+
                 analyser = audioContext.createAnalyser();
                 analyser.fftSize = 2048;
-                source.connect(analyser);
+                
+                source.connect(biquadFilter);
+                biquadFilter.connect(analyser);
                 
                 isRunning = true;
                 btnText.textContent = "マイクを切断";
@@ -127,8 +144,8 @@
             const pitch = autoCorrelate(data, audioContext.sampleRate);
 
             if (pitch > 60 && pitch < 1200) {
-                // 指数移動平均(EMA)でピッチ表示を滑らかに
-                smoothedPitch = (pitch * 0.2) + (smoothedPitch * 0.8);
+                // 指数移動平均(EMA)をさらに強めて安定化
+                smoothedPitch = (pitch * 0.1) + (smoothedPitch * 0.9);
                 
                 const midi = Math.round(12 * Math.log2(smoothedPitch / 440) + 69);
                 const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
