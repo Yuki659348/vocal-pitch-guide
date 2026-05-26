@@ -130,7 +130,8 @@
                 const cents = 1200 * Math.log2(smoothedPitch / targetFreq);
                 
                 const vibratoDepth = Math.max(...pitchHistory) - Math.min(...pitchHistory);
-                const vibratoPercent = Math.min(100, (vibratoDepth / smoothedPitch) * 100 * 2.5);
+                // ビブラート感度を下げました（係数を 2.5 から 1.0 に変更）
+                const vibratoPercent = Math.min(100, (vibratoDepth / smoothedPitch) * 100 * 1.0);
                 
                 vibratoMeter.style.width = vibratoPercent + "%";
                 document.getElementById('vibrato-percent').textContent = Math.round(vibratoPercent) + "%";
