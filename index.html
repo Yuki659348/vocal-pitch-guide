@@ -43,11 +43,11 @@
             
             <div class="mt-6 w-full grid grid-cols-2 gap-4 text-center">
                 <div>
-                    <div class="text-[10px] text-gray-500 uppercase tracking-widest">ビブラート</div>
+                    <div class="text-[10px] text-gray-500 uppercase tracking-widest">ビブラート深度</div>
                     <div id="vibrato-val" class="font-digital text-lg text-[#00ff9d]">0.0</div>
                 </div>
                 <div>
-                    <div class="text-[10px] text-gray-500 uppercase tracking-widest">変化度</div>
+                    <div class="text-[10px] text-gray-500 uppercase tracking-widest">ピッチ挙動</div>
                     <div id="change-val" class="font-digital text-lg text-[#ff007f]">Normal</div>
                 </div>
             </div>
@@ -71,7 +71,7 @@
 
     <script>
         let audioContext = null, analyser = null, biquadFilter = null, micStream = null, isRunning = false;
-        let pitchHistory = [], lastPitch = 0, smoothedPitch = 0;
+        let pitchHistory = [], lastPitch = 0, smoothedPitch = 0, vibratoBuffer = [];
         
         const canvas = document.getElementById('pitch-canvas');
         const ctx = canvas.getContext('2d');
@@ -100,89 +100,56 @@
 
         async function startMonitoring() {
             try {
-                // AudioContextの再利用と初期化
-                if (!audioContext) {
-                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                }
+                if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 if (audioContext.state === 'suspended') await audioContext.resume();
-
-                micStream = await navigator.mediaDevices.getUserMedia({ 
-                    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } 
-                });
-                
+                micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
                 const source = audioContext.createMediaStreamSource(micStream);
-                analyser = audioContext.createAnalyser();
-                analyser.fftSize = 2048;
-                
-                biquadFilter = audioContext.createBiquadFilter(); 
-                biquadFilter.type = "lowpass"; 
-                biquadFilter.frequency.value = 1000; 
-
-                source.connect(biquadFilter);
-                biquadFilter.connect(analyser);
-                
-                isRunning = true;
-                btnText.textContent = "停止";
-                statusPulse.className = "w-2 h-2 rounded-full bg-emerald-400 animate-pulse";
+                analyser = audioContext.createAnalyser(); analyser.fftSize = 2048;
+                biquadFilter = audioContext.createBiquadFilter(); biquadFilter.type = "lowpass"; biquadFilter.frequency.value = 1000; 
+                source.connect(biquadFilter); biquadFilter.connect(analyser);
+                isRunning = true; btnText.textContent = "停止"; statusPulse.className = "w-2 h-2 rounded-full bg-emerald-400 animate-pulse";
                 requestAnimationFrame(updateLoop);
-            } catch (e) {
-                console.error(e);
-                alert("マイクへのアクセスが拒否されたか、デバイスが見つかりません。設定を確認してください。");
-            }
+            } catch (e) { alert("マイクへのアクセスを許可してください。"); }
         }
 
         function stopMonitoring() { 
-            if (micStream) {
-                micStream.getTracks().forEach(t => t.stop());
-                micStream = null;
-            }
-            isRunning = false; 
-            btnText.textContent = "マイクを有効化"; 
-            statusPulse.className = "w-2 h-2 rounded-full bg-gray-700"; 
-            currentNoteEl.textContent = "--";
-            currentOctaveEl.textContent = "--";
-            currentHzEl.textContent = "0.00 Hz";
+            if (micStream) micStream.getTracks().forEach(t => t.stop());
+            isRunning = false; btnText.textContent = "マイクを有効化"; statusPulse.className = "w-2 h-2 rounded-full bg-gray-700"; 
         }
-        
         btnToggleMic.addEventListener('click', () => isRunning ? stopMonitoring() : startMonitoring());
 
         function updateLoop() {
-            if (!isRunning || !analyser) return;
-            const data = new Float32Array(analyser.fftSize); 
-            analyser.getFloatTimeDomainData(data);
+            if (!isRunning) return;
+            const data = new Float32Array(analyser.fftSize); analyser.getFloatTimeDomainData(data);
             const pitch = autoCorrelate(data, audioContext.sampleRate);
 
             if (pitch > 60 && pitch < 1200) {
                 smoothedPitch = (pitch * 0.1) + (smoothedPitch * 0.9);
-                pitchHistory.push(smoothedPitch); 
-                if (pitchHistory.length > 100) pitchHistory.shift();
+                pitchHistory.push(smoothedPitch); if (pitchHistory.length > 200) pitchHistory.shift();
                 
-                let diff = smoothedPitch - lastPitch;
-                vibratoEl.textContent = Math.abs(diff > 5 ? (diff * 0.5).toFixed(1) : 0);
-                changeEl.textContent = Math.abs(diff) > 20 ? (diff > 0 ? "しゃくり" : "フォール") : "Normal";
-                lastPitch = smoothedPitch;
+                // ビブラート計算: 最近のピッチの標準偏差を算出
+                vibratoBuffer.push(smoothedPitch); if (vibratoBuffer.length > 30) vibratoBuffer.shift();
+                let avg = vibratoBuffer.reduce((a,b)=>a+b, 0) / vibratoBuffer.length;
+                let variance = vibratoBuffer.reduce((a,b)=>a + Math.pow(b - avg, 2), 0) / vibratoBuffer.length;
+                let vibratoDepth = Math.sqrt(variance);
+                vibratoEl.textContent = vibratoDepth.toFixed(1);
 
                 const midi = Math.round(12 * Math.log2(smoothedPitch / 440) + 69);
-                const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-                const octave = Math.floor(midi / 12) - 1;
-                
-                currentNoteEl.textContent = noteNames[midi % 12];
-                currentOctaveEl.textContent = "OCTAVE: " + octave;
-                currentNoteEl.className = "font-digital text-6xl md:text-7xl font-black text-[#00e5ff]";
+                currentNoteEl.textContent = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"][midi % 12];
+                currentOctaveEl.textContent = "OCTAVE: " + (Math.floor(midi / 12) - 1);
                 currentHzEl.textContent = smoothedPitch.toFixed(1) + " Hz";
-                tuningNeedle.style.left = Math.max(0, Math.min(100, 50 + (1200 * Math.log2(smoothedPitch / (440 * Math.pow(2, (midi - 69) / 12)))))) + "%";
 
+                // 描画: ビブラートの深度に応じて線を太く・波打つように表現
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
-                ctx.beginPath(); ctx.strokeStyle = "#00e5ff"; ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.strokeStyle = vibratoDepth > 5 ? "#00ff9d" : "#00e5ff";
+                ctx.lineWidth = 1 + (vibratoDepth / 2);
                 pitchHistory.forEach((p, i) => {
-                    let x = (i / 100) * canvas.width;
+                    let x = (i / 200) * canvas.width;
                     let y = canvas.height - ((p - 100) / 800) * canvas.height;
                     i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
                 });
                 ctx.stroke();
-            } else {
-                // 音が拾えない時は履歴をクリアせず、現在の状態を保つか初期化
-                currentNoteEl.className = "font-digital text-6xl md:text-7xl font-black text-gray-700";
             }
             requestAnimationFrame(updateLoop);
         }
