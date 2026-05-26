@@ -28,8 +28,13 @@
                 <div id="vibrato-status" class="text-xs text-cyan-400 font-digital">Vibrato: 0.0 Hz</div>
             </div>
         </div>
+        
         <div class="flex-grow bg-black/20 border border-gray-800 rounded-2xl p-1 relative overflow-hidden">
             <canvas id="pitch-canvas" class="w-full h-full"></canvas>
+            <!-- ズームコントロール -->
+            <div class="absolute bottom-4 right-4 bg-gray-900/80 p-2 rounded-lg border border-gray-700">
+                <input id="zoom-slider" type="range" min="0.5" max="5" step="0.1" value="1.5" class="w-24 accent-cyan-500">
+            </div>
         </div>
     </main>
 
@@ -42,11 +47,12 @@
     <script>
         let audioContext, analyser, timeDomainData, isRunning = false;
         let frameCounter = 0;
-        let pitchHistory = []; // 直近のピッチ履歴（ビブラート計算用）
+        let pitchHistory = [];
         
         const canvas = document.getElementById('pitch-canvas');
         const ctx = canvas.getContext('2d', { alpha: false });
         const btnToggleMic = document.getElementById('btn-toggle-mic');
+        const zoomSlider = document.getElementById('zoom-slider');
 
         function resize() {
             canvas.width = canvas.clientWidth * window.devicePixelRatio;
@@ -96,13 +102,11 @@
                     pitchHistory.push(pitch);
                     if (pitchHistory.length > 30) pitchHistory.shift();
 
-                    // ビブラートの計算：直近のピッチ変動幅（最大-最小）
                     const maxP = Math.max(...pitchHistory);
                     const minP = Math.min(...pitchHistory);
                     const vibrato = (maxP - minP).toFixed(1);
                     
                     document.getElementById('vibrato-status').textContent = `Vibrato: ${vibrato} Hz`;
-
                     const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
                     document.getElementById('current-note').textContent = noteNames[Math.round(12 * Math.log2(pitch / 440) + 69) % 12];
                     document.getElementById('current-hz').textContent = pitch.toFixed(1) + " Hz";
@@ -115,11 +119,11 @@
             ctx.lineWidth = 2;
             ctx.beginPath();
             
+            const zoom = parseFloat(zoomSlider.value);
             const slice = canvas.width / 128;
             for (let i = 0; i < 128; i++) {
                 const x = i * slice;
-                // ビブラートの揺れを強調するために波形を少し垂直方向に増幅
-                const y = (timeDomainData[i * 16] * canvas.height * 0.8) + canvas.height / 2;
+                const y = (timeDomainData[i * 16] * canvas.height * zoom) + canvas.height / 2;
                 i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
             }
             ctx.stroke();
