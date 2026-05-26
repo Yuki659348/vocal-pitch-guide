@@ -53,7 +53,7 @@
         let pitchHistory = [];
         let smoothedPitch = 0;
         const MAX_HISTORY = 100;
-        const SMOOTHING = 0.08; // ピッチ表示をゆっくり動かすための平滑化係数
+        const SMOOTHING = 0.08;
         
         const canvas = document.getElementById('pitch-canvas');
         const ctx = canvas.getContext('2d', { alpha: false });
@@ -102,10 +102,8 @@
             const pitch = autoCorrelate(timeDomainData, audioContext.sampleRate);
             
             if (pitch > 40 && pitch < 2000) {
-                // ピッチ表示用には強い平滑化を適用
                 smoothedPitch = (SMOOTHING * pitch) + ((1.0 - SMOOTHING) * (smoothedPitch || pitch));
                 
-                // 軌跡用には生に近いデータを追従させる（高速追従）
                 pitchHistory.push(pitch);
                 if (pitchHistory.length > MAX_HISTORY) pitchHistory.shift();
 
@@ -123,7 +121,6 @@
             ctx.fillStyle = '#05070a';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             
-            // グリッド
             ctx.strokeStyle = '#1e293b';
             ctx.lineWidth = 1;
             for(let i = 0; i <= 10; i++) {
@@ -139,7 +136,6 @@
                 ctx.stroke();
             }
 
-            // 高速追従する軌跡
             ctx.strokeStyle = '#f472b6';
             ctx.lineWidth = 3;
             ctx.beginPath();
@@ -147,7 +143,8 @@
             const w = canvas.width;
             pitchHistory.forEach((p, i) => {
                 const x = (i / MAX_HISTORY) * w;
-                const y = h - ((Math.log2(p/60) / Math.log2(1500/60)) * h);
+                // 表示範囲を 40Hz ~ 2500Hz に広げてクリッピングを防ぐ
+                const y = h - ((Math.log2(p/40) / Math.log2(2500/40)) * h);
                 i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
             });
             ctx.stroke();
