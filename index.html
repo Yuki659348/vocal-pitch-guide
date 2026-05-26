@@ -100,29 +100,62 @@
 
         async function startMonitoring() {
             try {
-                if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                // AudioContextの再利用と初期化
+                if (!audioContext) {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                }
                 if (audioContext.state === 'suspended') await audioContext.resume();
-                micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+
+                micStream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } 
+                });
+                
                 const source = audioContext.createMediaStreamSource(micStream);
-                biquadFilter = audioContext.createBiquadFilter(); biquadFilter.type = "lowpass"; biquadFilter.frequency.value = 1000; 
-                analyser = audioContext.createAnalyser(); analyser.fftSize = 2048;
-                source.connect(biquadFilter); biquadFilter.connect(analyser);
-                isRunning = true; btnText.textContent = "停止"; statusPulse.className = "w-2 h-2 rounded-full bg-emerald-400 animate-pulse";
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 2048;
+                
+                biquadFilter = audioContext.createBiquadFilter(); 
+                biquadFilter.type = "lowpass"; 
+                biquadFilter.frequency.value = 1000; 
+
+                source.connect(biquadFilter);
+                biquadFilter.connect(analyser);
+                
+                isRunning = true;
+                btnText.textContent = "停止";
+                statusPulse.className = "w-2 h-2 rounded-full bg-emerald-400 animate-pulse";
                 requestAnimationFrame(updateLoop);
-            } catch (e) { alert("マイクへのアクセスを許可してください。"); }
+            } catch (e) {
+                console.error(e);
+                alert("マイクへのアクセスが拒否されたか、デバイスが見つかりません。設定を確認してください。");
+            }
         }
 
-        function stopMonitoring() { if (micStream) micStream.getTracks().forEach(t => t.stop()); isRunning = false; btnText.textContent = "マイクを有効化"; statusPulse.className = "w-2 h-2 rounded-full bg-gray-700"; }
+        function stopMonitoring() { 
+            if (micStream) {
+                micStream.getTracks().forEach(t => t.stop());
+                micStream = null;
+            }
+            isRunning = false; 
+            btnText.textContent = "マイクを有効化"; 
+            statusPulse.className = "w-2 h-2 rounded-full bg-gray-700"; 
+            currentNoteEl.textContent = "--";
+            currentOctaveEl.textContent = "--";
+            currentHzEl.textContent = "0.00 Hz";
+        }
+        
         btnToggleMic.addEventListener('click', () => isRunning ? stopMonitoring() : startMonitoring());
 
         function updateLoop() {
-            if (!isRunning) return;
-            const data = new Float32Array(analyser.fftSize); analyser.getFloatTimeDomainData(data);
+            if (!isRunning || !analyser) return;
+            const data = new Float32Array(analyser.fftSize); 
+            analyser.getFloatTimeDomainData(data);
             const pitch = autoCorrelate(data, audioContext.sampleRate);
 
             if (pitch > 60 && pitch < 1200) {
                 smoothedPitch = (pitch * 0.1) + (smoothedPitch * 0.9);
-                pitchHistory.push(smoothedPitch); if (pitchHistory.length > 100) pitchHistory.shift();
+                pitchHistory.push(smoothedPitch); 
+                if (pitchHistory.length > 100) pitchHistory.shift();
                 
                 let diff = smoothedPitch - lastPitch;
                 vibratoEl.textContent = Math.abs(diff > 5 ? (diff * 0.5).toFixed(1) : 0);
@@ -147,6 +180,9 @@
                     i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
                 });
                 ctx.stroke();
+            } else {
+                // 音が拾えない時は履歴をクリアせず、現在の状態を保つか初期化
+                currentNoteEl.className = "font-digital text-6xl md:text-7xl font-black text-gray-700";
             }
             requestAnimationFrame(updateLoop);
         }
