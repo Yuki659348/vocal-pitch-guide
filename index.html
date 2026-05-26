@@ -52,13 +52,12 @@
         <div class="bg-gray-900/40 px-4 py-3 rounded-xl border border-gray-800 flex flex-col gap-3">
             <div class="flex items-center gap-4">
                 <span class="text-[10px] text-gray-500 uppercase font-bold tracking-widest w-12">Vert (Zoom)</span>
-                <!-- ズーム倍率の初期値を下げ、範囲を広げてより全体が見えるように調整 -->
-                <input type="range" id="v-zoom" min="5" max="50" value="25" class="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+                <input type="range" id="v-zoom" min="5" max="100" value="25" class="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer">
                 <span id="v-val" class="text-[10px] w-8 text-right font-digital text-cyan-400">25%</span>
             </div>
             <div class="flex items-center gap-4">
                 <span class="text-[10px] text-gray-500 uppercase font-bold tracking-widest w-12">Horiz (Time)</span>
-                <input type="range" id="h-zoom" min="20" max="300" value="100" class="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+                <input type="range" id="h-zoom" min="20" max="500" value="100" class="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer">
                 <span id="h-val" class="text-[10px] w-8 text-right font-digital text-pink-400">100</span>
             </div>
         </div>
@@ -83,7 +82,7 @@
     <script>
         let audioContext, analyser, timeDomainData, isRunning = false;
         let pitchHistory = [], smoothedPitch = 0, silenceCount = 0;
-        const HOLD_THRESHOLD = 15, MAX_HISTORY = 300, SMOOTHING = 0.04;
+        const HOLD_THRESHOLD = 15, MAX_HISTORY = 500, SMOOTHING = 0.04;
         
         const canvas = document.getElementById('pitch-canvas'), ctx = canvas.getContext('2d', { alpha: false });
         const needle = document.getElementById('needle'), vibratoMeter = document.getElementById('vibrato-meter'), inputMeter = document.getElementById('input-meter');
@@ -159,13 +158,11 @@
 
             ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
             
-            // ズーム値を調整して初期表示を小さく（広範囲をカバー）する
             const vZoom = vSlider.value / 100;
-            const hZoom = hSlider.value;
+            const hZoom = parseInt(hSlider.value);
             document.getElementById('v-val').textContent = vSlider.value + "%";
             document.getElementById('h-val').textContent = hZoom;
 
-            // 中心ピッチに対し、表示範囲を広げる計算
             const range = smoothedPitch * (vZoom * 2); 
             const yMin = smoothedPitch - range;
             const yMax = smoothedPitch + range;
@@ -179,9 +176,11 @@
             const visibleHistory = pitchHistory.slice(startIdx);
 
             visibleHistory.forEach((p, i) => {
-                const x = (i / (hZoom - 1)) * canvas.width;
+                const x = (i / (Math.max(1, hZoom - 1))) * canvas.width;
+                // クランプ処理: Canvasの高さ内に強制的に収める
                 let y = canvas.height - ((p - yMin) / (yMax - yMin)) * canvas.height;
                 y = Math.max(0, Math.min(canvas.height, y));
+                
                 i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
             });
             ctx.stroke();
