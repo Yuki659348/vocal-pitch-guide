@@ -23,6 +23,7 @@
             padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
         }
         .font-digital { font-family: 'Orbitron', sans-serif; }
+        input[type=range] { accent-color: #00e5ff; }
     </style>
 </head>
 <body class="h-screen flex flex-col">
@@ -36,31 +37,37 @@
 
     <main class="flex-grow flex flex-col md:flex-row p-4 gap-4 overflow-hidden">
         
-        <section class="flex-none md:w-80 bg-gray-900/40 border border-gray-800 rounded-2xl p-6 flex flex-col items-center justify-center gap-2">
-            <div id="current-note" class="font-digital text-6xl md:text-7xl font-black text-gray-700 transition-colors duration-300">--</div>
-            <div id="current-octave" class="text-sm text-gray-400 font-digital tracking-widest mt-[-10px]">--</div>
-            <div id="current-hz" class="text-lg text-gray-500 font-digital mt-2">0.00 Hz</div>
+        <section class="flex-none md:w-80 bg-gray-900/40 border border-gray-800 rounded-2xl p-6 flex flex-col gap-4">
+            <div class="text-center">
+                <div id="current-note" class="font-digital text-5xl font-black text-gray-700 transition-colors duration-300">--</div>
+                <div id="current-hz" class="text-lg text-gray-500 font-digital mt-1">0.00 Hz</div>
+            </div>
             
-            <select id="range-select" class="mt-4 w-full bg-gray-800 text-white p-2 rounded-lg border border-gray-700 focus:outline-none text-center font-digital">
-                <option value="low">低域 (60-400Hz)</option>
-                <option value="mid" selected>中域 (200-800Hz)</option>
-                <option value="high">高域 (600-1500Hz)</option>
-            </select>
-            
-            <div class="mt-6 w-full grid grid-cols-2 gap-4 text-center">
-                <div>
-                    <div class="text-[10px] text-gray-500 uppercase tracking-widest">ビブラート深度</div>
-                    <div id="vibrato-val" class="font-digital text-lg text-[#00ff9d]">0.0</div>
-                </div>
-                <div>
-                    <div class="text-[10px] text-gray-500 uppercase tracking-widest">ピッチ挙動</div>
-                    <div id="change-val" class="font-digital text-lg text-[#ff007f]">Normal</div>
+            <div class="space-y-4">
+                <select id="range-select" class="w-full bg-gray-800 text-white p-2 rounded-lg border border-gray-700 text-center font-digital">
+                    <option value="low">低域 (60-400Hz)</option>
+                    <option value="mid" selected>中域 (200-800Hz)</option>
+                    <option value="high">高域 (600-1500Hz)</option>
+                </select>
+
+                <div class="space-y-1">
+                    <div class="flex justify-between text-[10px] text-gray-500 uppercase tracking-widest">
+                        <span>表示倍率 (Zoom)</span>
+                        <span id="zoom-val">1.0x</span>
+                    </div>
+                    <input id="zoom-slider" type="range" min="0.1" max="2.0" step="0.1" value="1.0" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
                 </div>
             </div>
             
-            <div class="w-full h-3 bg-black/40 rounded-full overflow-hidden relative border border-gray-800 mt-6">
-                <div class="absolute left-1/2 top-0 bottom-0 w-px bg-white/20"></div>
-                <div id="tuning-needle" class="absolute top-0 bottom-0 w-1 bg-[#00e5ff] left-1/2 -translate-x-1/2 transition-all duration-75"></div>
+            <div class="mt-auto grid grid-cols-2 gap-4 text-center">
+                <div class="bg-black/20 p-2 rounded-lg">
+                    <div class="text-[10px] text-gray-500">ビブラート</div>
+                    <div id="vibrato-val" class="font-digital text-lg text-[#00ff9d]">0.0</div>
+                </div>
+                <div class="bg-black/20 p-2 rounded-lg">
+                    <div class="text-[10px] text-gray-500">ピッチ挙動</div>
+                    <div id="change-val" class="font-digital text-lg text-[#ff007f]">--</div>
+                </div>
             </div>
         </section>
 
@@ -77,23 +84,19 @@
 
     <script>
         let audioContext = null, analyser = null, biquadFilter = null, micStream = null, isRunning = false;
-        let pitchHistory = [], lastPitch = 0, smoothedPitch = 0, vibratoBuffer = [];
+        let pitchHistory = [], smoothedPitch = 0, vibratoBuffer = [];
         
         const canvas = document.getElementById('pitch-canvas');
         const ctx = canvas.getContext('2d');
-        const currentNoteEl = document.getElementById('current-note'), currentHzEl = document.getElementById('current-hz'), currentOctaveEl = document.getElementById('current-octave');
+        const zoomSlider = document.getElementById('zoom-slider'), zoomValEl = document.getElementById('zoom-val');
+        const currentNoteEl = document.getElementById('current-note'), currentHzEl = document.getElementById('current-hz');
         const rangeSelect = document.getElementById('range-select');
-        const tuningNeedle = document.getElementById('tuning-needle'), statusPulse = document.getElementById('status-pulse'), btnToggleMic = document.getElementById('btn-toggle-mic'), btnText = document.getElementById('btn-text');
+        const statusPulse = document.getElementById('status-pulse'), btnToggleMic = document.getElementById('btn-toggle-mic'), btnText = document.getElementById('btn-text');
         const vibratoEl = document.getElementById('vibrato-val'), changeEl = document.getElementById('change-val');
 
         const ranges = { low: [60, 400], mid: [200, 800], high: [600, 1500] };
 
-        function resizeCanvas() {
-            canvas.width = canvas.clientWidth;
-            canvas.height = canvas.clientHeight;
-        }
-        window.addEventListener('resize', resizeCanvas);
-        resizeCanvas();
+        zoomSlider.addEventListener('input', (e) => zoomValEl.textContent = parseFloat(e.target.value).toFixed(1) + "x");
 
         function autoCorrelate(buffer, sampleRate) {
             let size = buffer.length, rms = 0;
@@ -137,21 +140,24 @@
                 pitchHistory.push(smoothedPitch); if (pitchHistory.length > 200) pitchHistory.shift();
                 
                 vibratoBuffer.push(smoothedPitch); if (vibratoBuffer.length > 30) vibratoBuffer.shift();
-                let avg = vibratoBuffer.reduce((a,b)=>a+b, 0) / vibratoBuffer.length;
-                let variance = vibratoBuffer.reduce((a,b)=>a + Math.pow(b - avg, 2), 0) / vibratoBuffer.length;
-                let vibratoDepth = Math.sqrt(variance);
-                vibratoEl.textContent = vibratoDepth.toFixed(1);
+                let variance = vibratoBuffer.reduce((a,b)=>a + Math.pow(b - (vibratoBuffer.reduce((s,v)=>s+v)/30), 2), 0) / 30;
+                vibratoEl.textContent = Math.sqrt(variance).toFixed(1);
 
                 const midi = Math.round(12 * Math.log2(smoothedPitch / 440) + 69);
                 currentNoteEl.textContent = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"][midi % 12];
-                currentOctaveEl.textContent = "OCTAVE: " + (Math.floor(midi / 12) - 1);
                 currentHzEl.textContent = smoothedPitch.toFixed(1) + " Hz";
 
-                const [min, max] = ranges[rangeSelect.value];
+                // ズームと拡大/縮小のロジック
+                const zoom = parseFloat(zoomSlider.value);
+                const [baseMin, baseMax] = ranges[rangeSelect.value];
+                const rangeWidth = (baseMax - baseMin) / zoom;
+                const min = Math.max(0, smoothedPitch - (rangeWidth / 2));
+                const max = Math.min(2000, smoothedPitch + (rangeWidth / 2));
+
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
                 ctx.beginPath();
-                ctx.strokeStyle = vibratoDepth > 5 ? "#00ff9d" : "#00e5ff";
-                ctx.lineWidth = 1 + (vibratoDepth / 2);
+                ctx.strokeStyle = "#00e5ff";
+                ctx.lineWidth = 2;
                 pitchHistory.forEach((p, i) => {
                     let x = (i / 200) * canvas.width;
                     let y = canvas.height - ((p - min) / (max - min)) * canvas.height;
