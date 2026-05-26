@@ -38,7 +38,6 @@
     </header>
 
     <main class="flex-grow flex flex-col p-4 gap-4 overflow-hidden min-h-0">
-        <!-- ピッチ表示エリア（統合） -->
         <div class="flex justify-between items-end bg-gray-900/40 p-4 rounded-2xl border border-gray-800">
             <div class="text-left">
                 <div id="current-note" class="font-digital text-5xl font-black text-gray-500 transition-colors duration-300">--</div>
@@ -81,11 +80,12 @@
         window.addEventListener('resize', resizeCanvas);
         resizeCanvas();
 
+        // 精度改善アルゴリズム: ラグ補間を適用してチューナーの精度を追求
         function autoCorrelate(buffer, sampleRate) {
             let size = buffer.length, rms = 0;
             for (let i = 0; i < size; i++) rms += buffer[i] * buffer[i];
             rms = Math.sqrt(rms / size);
-            const gate = modeSelect.value === 'instrument' ? 0.003 : 0.002;
+            const gate = modeSelect.value === 'instrument' ? 0.002 : 0.002;
             if (rms < gate) return -1;
             
             let c = new Float32Array(size);
@@ -94,6 +94,7 @@
             let bestT = -1, threshold = 0.2 * c[0];
             for (let i = 1; i < size; i++) if (c[i] > threshold && c[i] > c[i-1] && c[i] > c[i+1]) { bestT = i; break; }
             
+            // 精度向上: 放物線補間によるラグの微調整
             if (bestT !== -1 && bestT > 0 && bestT < size - 1) {
                 let shift = (c[bestT - 1] - c[bestT + 1]) / (2 * (c[bestT - 1] - 2 * c[bestT] + c[bestT + 1]));
                 return sampleRate / (bestT + shift);
@@ -108,9 +109,9 @@
                 micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 const source = audioContext.createMediaStreamSource(micStream);
                 analyser = audioContext.createAnalyser(); 
-                analyser.fftSize = 4096;
+                analyser.fftSize = 8192; // 精度向上のためFFTサイズを拡大
                 biquadFilter = audioContext.createBiquadFilter(); 
-                biquadFilter.type = "lowpass"; biquadFilter.frequency.value = 5000; 
+                biquadFilter.type = "lowpass"; biquadFilter.frequency.value = 3000; 
                 source.connect(biquadFilter); biquadFilter.connect(analyser);
                 isRunning = true; btnText.textContent = "停止"; statusPulse.className = "w-2 h-2 rounded-full bg-emerald-400 animate-pulse";
                 requestAnimationFrame(updateLoop);
@@ -130,9 +131,10 @@
             const displayW = canvas.width / window.devicePixelRatio;
             const displayH = canvas.height / window.devicePixelRatio;
 
+            // C音(約65Hz〜1046Hzなど)を広くカバー
             if (pitch > 40 && pitch < 2000) {
-                smoothedPitch = (pitch * 0.05) + (smoothedPitch * 0.95);
-                uiSmoothedPitch = (pitch * 0.01) + (uiSmoothedPitch * 0.99);
+                smoothedPitch = (pitch * 0.08) + (smoothedPitch * 0.92);
+                uiSmoothedPitch = (pitch * 0.02) + (uiSmoothedPitch * 0.98);
 
                 pitchHistory.push(smoothedPitch); if (pitchHistory.length > 400) pitchHistory.shift();
 
@@ -140,7 +142,7 @@
                 const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
                 currentNoteEl.textContent = noteNames[midi % 12];
                 currentNoteEl.classList.remove('text-gray-500'); currentNoteEl.classList.add('text-white');
-                currentHzEl.textContent = uiSmoothedPitch.toFixed(1) + " Hz";
+                currentHzEl.textContent = uiSmoothedPitch.toFixed(2) + " Hz";
 
                 const min = 50, max = 2000;
                 ctx.clearRect(0, 0, displayW, displayH);
