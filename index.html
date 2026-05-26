@@ -155,7 +155,8 @@
                 vibratoEl.textContent = Math.sqrt(variance).toFixed(1);
 
                 const midi = Math.round(12 * Math.log2(smoothedPitch / 440) + 69);
-                currentNoteEl.textContent = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"][midi % 12];
+                const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+                currentNoteEl.textContent = noteNames[midi % 12];
                 currentHzEl.textContent = smoothedPitch.toFixed(1) + " Hz";
 
                 const zoom = parseFloat(zoomSlider.value);
@@ -166,12 +167,15 @@
 
                 ctx.clearRect(0, 0, displayW, displayH);
                 
-                // 横線（グリッド）を描画
-                ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
-                ctx.lineWidth = 1;
-                for (let i = 0; i <= 10; i++) {
-                    let y = i * (displayH / 10);
+                // グリッド線と音階ラベル
+                ctx.fillStyle = "rgba(255, 255, 255, 0.2)";
+                ctx.font = "10px Orbitron";
+                for (let i = 0; i <= 5; i++) {
+                    let y = displayH - (i * (displayH / 5));
+                    ctx.strokeStyle = "rgba(255, 255, 255, 0.1)";
                     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(displayW, y); ctx.stroke();
+                    let freq = min + (i * (max - min) / 5);
+                    ctx.fillText(Math.round(freq) + "Hz", 5, y - 5);
                 }
 
                 // ピッチ履歴の描画
@@ -184,6 +188,14 @@
                     i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
                 });
                 ctx.stroke();
+
+                // 先端の現在値表示
+                const lastIdx = pitchHistory.length - 1;
+                const lastX = (lastIdx / 200) * displayW;
+                const lastY = displayH - ((pitchHistory[lastIdx] - min) / (max - min)) * displayH;
+                ctx.fillStyle = "#ff007f";
+                ctx.beginPath(); ctx.arc(lastX, lastY, 5, 0, Math.PI * 2); ctx.fill();
+                ctx.fillText(noteNames[midi % 12], lastX + 8, lastY + 4);
             }
             requestAnimationFrame(updateLoop);
         }
