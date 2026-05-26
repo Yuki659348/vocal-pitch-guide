@@ -102,7 +102,8 @@
             let size = buffer.length, rms = 0;
             for (let i = 0; i < size; i++) rms += buffer[i] * buffer[i];
             rms = Math.sqrt(rms / size);
-            if (rms < 0.005) return -1;
+            // iOS感度対策：閾値を0.005から0.002へ緩和
+            if (rms < 0.002) return -1;
             let c = new Float32Array(size);
             for (let i = 0; i < size; i++) for (let j = 0; j < size - i; j++) c[i] += buffer[j] * buffer[j + i];
             let bestT = -1, threshold = 0.2 * c[0];
@@ -114,7 +115,14 @@
             try {
                 if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 if (audioContext.state === 'suspended') await audioContext.resume();
-                micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+                // iOS最適化設定
+                micStream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: { 
+                        echoCancellation: false, 
+                        noiseSuppression: false, 
+                        autoGainControl: true // iOSではこれをtrueにするとマイク感度が高まる場合がある
+                    } 
+                });
                 const source = audioContext.createMediaStreamSource(micStream);
                 analyser = audioContext.createAnalyser(); analyser.fftSize = 2048;
                 biquadFilter = audioContext.createBiquadFilter(); biquadFilter.type = "lowpass"; biquadFilter.frequency.value = 2000; 
@@ -157,7 +165,6 @@
 
                 ctx.clearRect(0, 0, displayW, displayH);
                 
-                // 音階グリッドの描画
                 ctx.fillStyle = "rgba(255, 255, 255, 0.2)";
                 ctx.font = "12px Orbitron";
                 for (let i = 0; i < 128; i++) {
