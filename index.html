@@ -102,7 +102,6 @@
             let size = buffer.length, rms = 0;
             for (let i = 0; i < size; i++) rms += buffer[i] * buffer[i];
             rms = Math.sqrt(rms / size);
-            // iOS感度対策：閾値を0.005から0.002へ緩和
             if (rms < 0.002) return -1;
             let c = new Float32Array(size);
             for (let i = 0; i < size; i++) for (let j = 0; j < size - i; j++) c[i] += buffer[j] * buffer[j + i];
@@ -115,13 +114,8 @@
             try {
                 if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 if (audioContext.state === 'suspended') await audioContext.resume();
-                // iOS最適化設定
                 micStream = await navigator.mediaDevices.getUserMedia({ 
-                    audio: { 
-                        echoCancellation: false, 
-                        noiseSuppression: false, 
-                        autoGainControl: true // iOSではこれをtrueにするとマイク感度が高まる場合がある
-                    } 
+                    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true } 
                 });
                 const source = audioContext.createMediaStreamSource(micStream);
                 analyser = audioContext.createAnalyser(); analyser.fftSize = 2048;
@@ -146,7 +140,8 @@
             const displayH = canvas.height / window.devicePixelRatio;
 
             if (pitch > 50 && pitch < 2000) {
-                smoothedPitch = (pitch * 0.05) + (smoothedPitch * 0.95);
+                // 平滑化の係数を変更：値を小さくするほど動きがゆっくりになります (0.05 -> 0.02)
+                smoothedPitch = (pitch * 0.02) + (smoothedPitch * 0.98);
                 pitchHistory.push(smoothedPitch); if (pitchHistory.length > 400) pitchHistory.shift();
                 
                 vibratoBuffer.push(smoothedPitch); if (vibratoBuffer.length > 30) vibratoBuffer.shift();
