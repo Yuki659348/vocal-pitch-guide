@@ -15,40 +15,46 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     
     <style>
-        body { font-family: 'Rajdhani', 'Noto Sans JP', sans-serif; background-color: #0b0f19; color: #e2e8f0; overflow: hidden; padding-top: env(safe-area-inset-top); }
+        body { 
+            font-family: 'Rajdhani', 'Noto Sans JP', sans-serif; 
+            background-color: #05070a; 
+            color: #e2e8f0; 
+            overflow: hidden; 
+            padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+        }
         .font-digital { font-family: 'Orbitron', sans-serif; }
     </style>
 </head>
-<body class="h-screen flex flex-col p-4">
+<body class="h-screen flex flex-col">
 
-    <header class="flex justify-between items-center bg-gray-900/80 p-4 rounded-xl border border-gray-800 backdrop-blur">
-        <h1 class="text-lg font-bold tracking-wider text-white">
-            <span class="text-[#00e5ff] font-digital">VOICE PITCH MONITOR</span>
+    <header class="flex-none flex justify-between items-center bg-gray-950/50 p-4 border-b border-gray-800 backdrop-blur-md">
+        <h1 class="text-sm font-bold tracking-widest text-white/70">
+            <span class="text-[#00e5ff] font-digital">PITCH MONITOR</span>
         </h1>
-        <div id="status-pulse" class="w-3 h-3 rounded-full bg-gray-600"></div>
+        <div id="status-pulse" class="w-2 h-2 rounded-full bg-gray-700"></div>
     </header>
 
-    <main class="flex-grow grid grid-cols-1 md:grid-cols-3 gap-4 my-4">
+    <main class="flex-grow flex flex-col md:flex-row p-4 gap-4 overflow-hidden">
         
-        <section class="bg-gray-900/60 border border-gray-800 rounded-xl p-6 flex flex-col items-center justify-center gap-4">
-            <div id="current-note" class="font-digital text-8xl font-black text-gray-600">--</div>
-            <div id="current-hz" class="text-xl text-gray-500 font-digital">0.00 Hz</div>
+        <section class="flex-none md:w-80 bg-gray-900/40 border border-gray-800 rounded-2xl p-6 flex flex-col items-center justify-center gap-2">
+            <div id="current-note" class="font-digital text-7xl md:text-8xl font-black text-gray-700 transition-colors duration-300">--</div>
+            <div id="current-hz" class="text-lg text-gray-500 font-digital">0.00 Hz</div>
             
-            <div class="w-full h-4 bg-black/60 rounded-full overflow-hidden relative border border-gray-800 mt-4">
-                <div class="absolute left-1/2 top-0 bottom-0 w-0.5 bg-[#00e5ff]/60"></div>
-                <div id="tuning-needle" class="absolute top-0 bottom-0 w-1.5 bg-gray-400 left-1/2 -translate-x-1/2 transition-all duration-75"></div>
+            <div class="w-full h-3 bg-black/40 rounded-full overflow-hidden relative border border-gray-800 mt-6">
+                <div class="absolute left-1/2 top-0 bottom-0 w-px bg-white/20"></div>
+                <div id="tuning-needle" class="absolute top-0 bottom-0 w-1 bg-[#00e5ff] left-1/2 -translate-x-1/2 transition-all duration-75"></div>
             </div>
-            <div id="cents-label" class="text-sm font-digital text-gray-400">0 cents</div>
+            <div id="cents-label" class="text-xs font-digital text-gray-500 mt-2">0 cents</div>
         </section>
 
-        <section class="md:col-span-2 bg-black/40 border border-gray-800 rounded-xl p-2 relative">
-            <canvas id="pitch-canvas" class="w-full h-full rounded-lg"></canvas>
+        <section class="flex-grow bg-black/20 border border-gray-800 rounded-2xl p-2 relative overflow-hidden">
+            <canvas id="pitch-canvas" class="w-full h-full"></canvas>
         </section>
     </main>
 
-    <footer class="bg-gray-900/80 p-4 rounded-xl border border-gray-800">
-        <button id="btn-toggle-mic" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-4 rounded-lg flex items-center justify-center gap-3 active:scale-95 transition">
-            <i class="fa-solid fa-microphone"></i> <span id="btn-text">マイクを有効化する</span>
+    <footer class="flex-none p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+        <button id="btn-toggle-mic" class="w-full bg-[#00e5ff]/10 border border-[#00e5ff]/30 text-[#00e5ff] hover:bg-[#00e5ff]/20 font-bold py-4 rounded-xl flex items-center justify-center gap-3 transition active:scale-95">
+            <i class="fa-solid fa-microphone"></i> <span id="btn-text">マイクを有効化</span>
         </button>
     </footer>
 
@@ -70,21 +76,18 @@
         const btnToggleMic = document.getElementById('btn-toggle-mic');
         const btnText = document.getElementById('btn-text');
 
-        // 倍音をカットするための自己相関強化版アルゴリズム
         function autoCorrelate(buffer, sampleRate) {
             let size = buffer.length;
             let rms = 0;
             for (let i = 0; i < size; i++) rms += buffer[i] * buffer[i];
             rms = Math.sqrt(rms / size);
-            if (rms < 0.01) return -1; // ノイズゲートを少し引き上げ
+            if (rms < 0.01) return -1;
 
-            // 自己相関
             let c = new Float32Array(size);
             for (let i = 0; i < size; i++) {
                 for (let j = 0; j < size - i; j++) c[i] += buffer[j] * buffer[j + i];
             }
 
-            // 基音付近（高い周波数から順にチェックし、最初の大きな山を探す）
             let bestT = -1;
             let threshold = 0.2 * c[0];
             for (let i = 1; i < size; i++) {
@@ -106,7 +109,6 @@
                 });
                 const source = audioContext.createMediaStreamSource(micStream);
                 
-                // ローパスフィルターを追加して基音成分を強調
                 biquadFilter = audioContext.createBiquadFilter();
                 biquadFilter.type = "lowpass";
                 biquadFilter.frequency.value = 1000; 
@@ -118,21 +120,21 @@
                 biquadFilter.connect(analyser);
                 
                 isRunning = true;
-                btnText.textContent = "マイクを切断";
-                btnToggleMic.className = "w-full bg-red-600 hover:bg-red-500 text-white font-bold py-4 rounded-lg flex items-center justify-center gap-3";
-                statusPulse.className = "w-3 h-3 rounded-full bg-emerald-500 animate-pulse";
+                btnText.textContent = "停止";
+                btnToggleMic.className = "w-full bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 font-bold py-4 rounded-xl flex items-center justify-center gap-3 transition";
+                statusPulse.className = "w-2 h-2 rounded-full bg-emerald-400 animate-pulse";
                 requestAnimationFrame(updateLoop);
             } catch (e) {
-                alert("マイクアクセス不可: " + e.message);
+                alert("マイクへのアクセスを許可してください。");
             }
         }
 
         function stopMonitoring() {
             if (micStream) micStream.getTracks().forEach(t => t.stop());
             isRunning = false;
-            btnText.textContent = "マイクを有効化する";
-            btnToggleMic.className = "w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-4 rounded-lg flex items-center justify-center gap-3";
-            statusPulse.className = "w-3 h-3 rounded-full bg-gray-600";
+            btnText.textContent = "マイクを有効化";
+            btnToggleMic.className = "w-full bg-[#00e5ff]/10 border border-[#00e5ff]/30 text-[#00e5ff] hover:bg-[#00e5ff]/20 font-bold py-4 rounded-xl flex items-center justify-center gap-3 transition";
+            statusPulse.className = "w-2 h-2 rounded-full bg-gray-700";
         }
 
         btnToggleMic.addEventListener('click', () => isRunning ? stopMonitoring() : startMonitoring());
@@ -144,19 +146,19 @@
             const pitch = autoCorrelate(data, audioContext.sampleRate);
 
             if (pitch > 60 && pitch < 1200) {
-                // 指数移動平均(EMA)をさらに強めて安定化
                 smoothedPitch = (pitch * 0.1) + (smoothedPitch * 0.9);
-                
                 const midi = Math.round(12 * Math.log2(smoothedPitch / 440) + 69);
                 const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
                 
                 currentNoteEl.textContent = noteNames[midi % 12];
-                currentNoteEl.className = "font-digital text-8xl font-black text-[#ff007f]";
+                currentNoteEl.className = "font-digital text-7xl md:text-8xl font-black text-[#00e5ff]";
                 currentHzEl.textContent = smoothedPitch.toFixed(1) + " Hz";
                 
                 const cents = 1200 * Math.log2(smoothedPitch / (440 * Math.pow(2, (midi - 69) / 12)));
                 centsLabel.textContent = Math.round(cents) + " cents";
                 tuningNeedle.style.left = Math.max(0, Math.min(100, 50 + cents)) + "%";
+            } else {
+                currentNoteEl.className = "font-digital text-7xl md:text-8xl font-black text-gray-700";
             }
 
             requestAnimationFrame(updateLoop);
